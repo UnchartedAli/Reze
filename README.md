@@ -24,7 +24,6 @@
 
 ### 🆕 In v1.1.0
 
-- Creator branding: **UnchartedAli** / **@yamods** across the package, panel, startup banner, and `.credits` command.
 - Full deployment hardening for Render / Railway / Koyeb / Fly / Docker / VPS.
 - `StringSession` support + `scripts/generate_session.py`.
 - Public `/healthz` endpoint and Docker `HEALTHCHECK`.
