@@ -1,0 +1,29 @@
+[Unit]
+Description=Reze Telegram Userbot & Web Control Panel (by UnchartedAli @yamods)
+Documentation=https://t.me/yamods
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=reze
+Group=reze
+WorkingDirectory=/home/reze/reze
+EnvironmentFile=/home/reze/reze/.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/home/reze/reze/venv/bin/python3 -m reze.app
+Restart=always
+RestartSec=10
+KillSignal=SIGTERM
+TimeoutStopSec=30
+LimitNOFILE=65535
+
+# Security sandbox flags
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/reze/reze/data
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

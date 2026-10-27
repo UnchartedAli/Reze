@@ -1,0 +1,63 @@
+# ========================================================
+#  Render Blueprint for Reze Telegram Userbot
+#  Developer: UnchartedAli  ·  Channel: @yamods
+#  https://t.me/yamods
+# ========================================================
+#
+#  1. Push this repository to GitHub.
+#  2. Render Dashboard → New → Blueprint → select the repository.
+#  3. Fill the secret values marked `sync: false` and deploy.
+#
+#  IMPORTANT:
+#  * Render free web services sleep after inactivity, which stops the userbot.
+#    Use a paid always-on instance (or Railway/Koyeb/VPS) for 24/7 operation.
+#  * Run exactly ONE instance, otherwise the same Telegram session connects
+#    multiple times.
+#  * Persistent disk is only available on paid plans. Uncomment the `disk`
+#    block below to keep the SQLite database (and a file session) between
+#    deploys. Otherwise always use REZE_SESSION_STRING.
+# ========================================================
+
+services:
+  - type: web
+    name: reze-userbot
+    runtime: docker
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    autoDeploy: true
+
+    # Paid plans only — uncomment together with a paid plan:
+    # disk:
+    #   name: reze-data
+    #   mountPath: /app/data
+    #   sizeGB: 1
+
+    envVars:
+      # --- Telegram (set in the dashboard, never in git) ---
+      - key: REZE_API_ID
+        sync: false
+      - key: REZE_API_HASH
+        sync: false
+      - key: REZE_OWNER_ID
+        sync: false
+      - key: REZE_SESSION_STRING
+        sync: false
+
+      # --- Web panel ---
+      - key: REZE_WEB_HOST
+        value: 0.0.0.0
+      - key: REZE_PANEL_USERNAME
+        value: admin
+      - key: REZE_PANEL_PASSWORD
+        sync: false
+
+      # --- Runtime ---
+      - key: REZE_SECRET_KEY
+        generateValue: true
+      - key: REZE_DATA_DIR
+        value: /app/data
+      - key: REZE_TIMEZONE
+        value: Asia/Tehran
+      - key: REZE_LOG_LEVEL
+        value: INFO

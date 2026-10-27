@@ -1,0 +1,42 @@
+# ========================================================
+#  Docker Compose for Reze Telegram Userbot (VPS / home server)
+#  Developer: UnchartedAli  ·  Channel: @yamods
+# ========================================================
+#
+#  Quick start:
+#    cp .env.example .env      # edit the Telegram + panel values
+#    docker compose up -d --build
+#    docker compose logs -f
+#
+#  The ./data folder keeps the SQLite database and the Telethon session file
+#  between container restarts. The panel is exposed on port 8080.
+# ========================================================
+
+services:
+  reze:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: reze-userbot:latest
+    container_name: reze
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      REZE_WEB_HOST: 0.0.0.0
+      REZE_DATA_DIR: /app/data
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "scripts/healthcheck.py"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,0 +1,44 @@
+# ========================================================
+#  Fly.io configuration for Reze Telegram Userbot (optional)
+#  Developer: UnchartedAli  ·  Channel: @yamods
+# ========================================================
+#
+#  Usage:
+#    fly launch --no-deploy --copy-config    # change `app` to a unique name
+#    fly volumes create reze_data --size 1  # persistent storage (/data)
+#    fly secrets set REZE_API_ID=... REZE_API_HASH=... REZE_OWNER_ID=... \
+#                     REZE_SESSION_STRING=... REZE_PANEL_PASSWORD=... \
+#                     REZE_SECRET_KEY=...
+#    fly deploy
+# ========================================================
+
+app = "reze-userbot"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  REZE_WEB_HOST = "0.0.0.0"
+  REZE_DATA_DIR = "/data"
+  REZE_TIMEZONE = "Asia/Tehran"
+  REZE_LOG_LEVEL = "INFO"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "GET"
+    path = "/healthz"
+
+[[mounts]]
+  source = "reze_data"
+  destination = "/data"
