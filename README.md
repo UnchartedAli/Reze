@@ -7,6 +7,14 @@
 ![Telethon](https://img.shields.io/badge/engine-Telethon%20MTProto-10b981)
 ![License](https://img.shields.io/badge/license-MIT-9ca3af)
 
+```
+   ██████╗ ███████╗███████╗███████╗
+   ██╔══██╗██╔════╝╚══███╔╝██╔════╝
+   ██████╔╝█████╗    ███╔╝ █████╗  
+   ██╔══██╗██╔══╝   ███╔╝  ██╔══╝  
+   ██║  ██║███████╗███████╗███████╗
+   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝
+```
 **Reze** is a modular, production-focused Telegram **userbot** built with Python 3.11+, Telethon MTProto, SQLite, and an integrated Persian **web control panel**. It runs on a VPS **and** on managed platforms such as **Render, Railway, Koyeb, Fly.io, Docker, and PaaS services with a `PORT` variable**.
 
 ---
@@ -34,6 +42,179 @@
 ---
 
 ## 🚀 Quick start (local / VPS)
+🇬🇧 VPS Installation on Ubuntu 24.04 (Docker Compose)
+
+This guide walks you through deploying Reze on an Ubuntu 24.04 VPS using Docker Compose. Once started in detached mode, Reze continues running after you disconnect from SSH, provided the server and Docker service remain running.
+
+Prerequisites
+
+- An Ubuntu 24.04 VPS
+- SSH access with "root" or a user with "sudo" privileges
+- A Telegram account for the userbot
+- Telegram API credentials from "my.telegram.org" (https://my.telegram.org)
+- A strong password for the web panel
+
+1. Connect to Your VPS
+
+From your terminal, connect to your server:
+
+ssh root@YOUR_SERVER_IP
+
+Replace "YOUR_SERVER_IP" with your VPS IP address.
+
+2. Install Git and Docker
+
+Update the package index and install the required packages:
+
+sudo apt update
+sudo apt install -y git docker.io docker-compose-v2
+
+Enable and start Docker:
+
+sudo systemctl enable --now docker
+
+Verify the installation:
+
+docker --version
+docker compose version
+
+If you are logged in as "root", you do not need to prefix Docker commands with "sudo".
+
+3. Clone the Repository
+
+Clone Reze into "/opt/Reze":
+
+sudo git clone https://github.com/UnchartedAli/Reze.git /opt/Reze
+cd /opt/Reze
+
+4. Configure Environment Variables
+
+Create your environment file from the example:
+
+cp .env.example .env
+nano .env
+
+Configure the required values:
+
+REZE_API_ID=YOUR_API_ID
+REZE_API_HASH=YOUR_API_HASH
+REZE_OWNER_ID=YOUR_TELEGRAM_USER_ID
+REZE_SESSION_STRING=
+REZE_PANEL_PASSWORD=YOUR_STRONG_PANEL_PASSWORD
+REZE_WEB_HOST=0.0.0.0
+
+Replace the placeholder values with your actual credentials:
+
+- "REZE_API_ID" and "REZE_API_HASH": Obtain these from "my.telegram.org" (https://my.telegram.org).
+- "REZE_OWNER_ID": Your numeric Telegram user ID.
+- "REZE_SESSION_STRING": Generate this in the next step.
+- "REZE_PANEL_PASSWORD": A strong, unique password for the web panel.
+- "REZE_WEB_HOST": Set this to "0.0.0.0" when the panel needs to be reachable through the server's network interface.
+
+If the current ".env.example" includes additional required variables, configure those as well.
+
+To save and exit Nano, press "Ctrl+O", then "Enter", and finally "Ctrl+X".
+
+Restrict access to the environment file:
+
+chmod 600 .env
+
+Security note: Never commit ".env" or publish its contents to GitHub.
+
+5. Build the Docker Image
+
+Build the application image:
+
+docker compose build
+
+6. Generate a Telegram Session
+
+Run the session generator:
+
+docker compose run --rm --no-deps reze python scripts/generate_session.py
+
+Follow the prompts to enter your Telegram phone number and verification code. If two-step verification is enabled, you may also be asked for your Telegram password.
+
+After the script successfully generates a session string, copy it into "REZE_SESSION_STRING" in your ".env" file.
+
+For example:
+
+REZE_SESSION_STRING=YOUR_GENERATED_SESSION_STRING
+
+Save the file and restrict its permissions again:
+
+chmod 600 .env
+
+Important: A Telegram session string grants access to your account. Treat it like a password. Never share it, post it in screenshots, or commit it to a public repository.
+
+7. Start Reze
+
+Build and start the service in the background:
+
+docker compose up -d --build
+
+Check the container status:
+
+docker compose ps
+
+View the application logs:
+
+docker compose logs -f reze
+
+Press "Ctrl+C" to stop following the logs. This does not stop the running container.
+
+After a successful startup, the logs should indicate that Reze connected to Telegram and started listening for commands.
+
+8. Access the Web Panel
+
+If Docker publishes port "8080" and the server firewall allows access, open the following URL in your browser:
+
+http://YOUR_SERVER_IP:8080
+
+Replace "YOUR_SERVER_IP" with your VPS IP address and sign in using your panel credentials. The default username is "admin" unless it has been changed in the configuration.
+
+You can also check the health endpoint:
+
+http://YOUR_SERVER_IP:8080/healthz
+
+Security recommendation: Do not expose the panel publicly over plain HTTP. For public access, configure HTTPS using a reverse proxy such as Nginx and a valid TLS certificate.
+
+9. Manage the Service
+
+Check the container status:
+
+docker compose ps
+
+Follow application logs:
+
+docker compose logs -f reze
+
+Restart Reze:
+
+docker compose restart reze
+
+Stop the Compose stack:
+
+docker compose down
+
+Start it again:
+
+docker compose up -d
+
+Running Compose in detached mode allows Reze to continue after your SSH session or terminal closes. Automatic startup after a VPS reboot depends on the restart policy configured in "docker-compose.yml" and Docker starting successfully.
+
+10. Security and Maintenance
+
+- Use a strong, unique web panel password.
+- Keep ".env", Telegram session files, and the "data/" directory private.
+- Do not expose the web panel directly to the public internet without appropriate HTTPS and access controls.
+- Back up important application data and the SQLite database securely.
+- Run only one active instance per Telegram session.
+- If your session string is exposed, revoke the affected Telegram session from Telegram → Settings → Devices.
+- Keep Docker, Ubuntu, and the Reze deployment updated.
+
+For additional deployment options and platform-specific instructions, see ""DEPLOY.md"" (DEPLOY.md).
+
 
 ```bash
 git clone <YOUR_REPO_URL> reze && cd reze
