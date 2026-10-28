@@ -187,11 +187,87 @@ class Database:
             );
             """)
 
+            # 11. Personal archive (saves, links, message references)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS archive (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind TEXT NOT NULL DEFAULT 'note',
+                title TEXT DEFAULT '',
+                content TEXT DEFAULT '',
+                url TEXT DEFAULT '',
+                chat_id INTEGER,
+                message_id INTEGER,
+                tags TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """)
+
+            # 12. Personal notes (owner-scoped, distinct from per-chat notes)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS personal_notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """)
+
+            # 13. Reminders and scheduled personal actions
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS reminders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                text TEXT NOT NULL,
+                due_at TIMESTAMP NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                fired_at TIMESTAMP
+            );
+            """)
+
+            # 14. Automation rules (trigger -> condition -> action)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS automations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                enabled INTEGER NOT NULL DEFAULT 0,
+                trigger_type TEXT NOT NULL,
+                trigger_config TEXT NOT NULL DEFAULT '{}',
+                conditions TEXT NOT NULL DEFAULT '[]',
+                actions TEXT NOT NULL DEFAULT '[]',
+                cooldown_seconds INTEGER NOT NULL DEFAULT 60,
+                created_by INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_run TIMESTAMP,
+                run_count INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT DEFAULT ''
+            );
+            """)
+
+            # 15. Bounded task history for the web panel
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS task_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                command TEXT DEFAULT '',
+                status TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                finished_at TIMESTAMP,
+                duration_seconds REAL DEFAULT 0,
+                error TEXT DEFAULT ''
+            );
+            """)
+
             # Ensure default row for profile settings exists
             cursor.execute("""
             INSERT OR IGNORE INTO profile_settings (id, name_clock_enabled, bio_clock_enabled)
             VALUES (1, 0, 0);
             """)
+
+            cursor.execute("PRAGMA user_version = 2;")
 
             conn.commit()
             logger.debug("Database initialized successfully at %s", self.db_path)
@@ -335,6 +411,310 @@ class Database:
             rows = conn.execute("SELECT name FROM notes WHERE chat_id = ?", (chat_id,)).fetchall()
             return [r["name"] for r in rows]
 
+    # ------------------------------------------------------------------ Settings
+    def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        with self.get_connection() as conn:
+            row = conn.execute(
+                "SELECT value FROM global_settings WHERE key = ?", (key,)
+            ).fetchone()
+            return row["value"] if row else default
+
+    def set_setting(self, key: str, value: str):
+        with self.get_connection() as conn:
+            conn.execute(
+                "INSERT INTO global_settings (key, value, updated_at) "
+                "VALUES (?, ?, CURRENT_TIMESTAMP) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+                "updated_at = CURRENT_TIMESTAMP",
+                (key, str(value)),
+            )
+            conn.commit()
+
+    def delete_setting(self, key: str) -> bool:
+        with self.get_connection() as conn:
+            cur = conn.execute("DELETE FROM global_settings WHERE key = ?", (key,))
+            conn.commit()
+            return cur.rowcount > 0
+
+    def all_settings(self) -> Dict[str, str]:
+        with self.get_connection() as conn:
+            rows = conn.execute("SELECT key, value FROM global_settings").fetchall()
+            return {r["key"]: r["value"] for r in rows}
+
+    # ------------------------------------------------------------------- Archive
+    def add_archive(
+        self,
+        kind: str,
+        title: str = "",
+        content: str = "",
+        url: str = "",
+        chat_id: Optional[int] = None,
+        message_id: Optional[int] = None,
+        tags: str = "",
+    ) -> int:
+        with self.get_connection() as conn:
+            cur = conn.execute(
+                "INSERT INTO archive (kind, title, content, url, chat_id, message_id, tags) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (kind, title, content, url, chat_id, message_id, tags),
+            )
+            conn.commit()
+            return int(cur.lastrowid)
+
+    def search_archive(
+        self, query: str, limit: int = 20, kind: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Case-insensitive LIKE search across title, content, url and tags."""
+        limit = max(1, min(int(limit), 100))
+        needle = f"%{query.lower()}%"
+        sql = (
+            "SELECT * FROM archive WHERE (lower(title) LIKE ? OR lower(content) LIKE ? "
+            "OR lower(url) LIKE ? OR lower(tags) LIKE ?)"
+        )
+        params: List[Any] = [needle, needle, needle, needle]
+        if kind:
+            sql += " AND kind = ?"
+            params.append(kind)
+        sql += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        with self.get_connection() as conn:
+            rows = conn.execute(sql, params).fetchall()
+            return [dict(r) for r in rows]
+
+    def list_archive(self, limit: int = 50, kind: Optional[str] = None) -> List[Dict[str, Any]]:
+        limit = max(1, min(int(limit), 200))
+        sql = "SELECT * FROM archive"
+        params: List[Any] = []
+        if kind:
+            sql += " WHERE kind = ?"
+            params.append(kind)
+        sql += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        with self.get_connection() as conn:
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    def delete_archive(self, entry_id: int) -> bool:
+        with self.get_connection() as conn:
+            cur = conn.execute("DELETE FROM archive WHERE id = ?", (entry_id,))
+            conn.commit()
+            return cur.rowcount > 0
+
+    def archive_count(self) -> int:
+        with self.get_connection() as conn:
+            return conn.execute("SELECT COUNT(*) FROM archive").fetchone()[0]
+
+    # ------------------------------------------------------------ Personal notes
+    def set_personal_note(self, name: str, content: str):
+        with self.get_connection() as conn:
+            conn.execute(
+                "INSERT INTO personal_notes (name, content) VALUES (?, ?) "
+                "ON CONFLICT(name) DO UPDATE SET content = excluded.content, "
+                "updated_at = CURRENT_TIMESTAMP",
+                (name.lower(), content),
+            )
+            conn.commit()
+
+    def get_personal_note(self, name: str) -> Optional[str]:
+        with self.get_connection() as conn:
+            row = conn.execute(
+                "SELECT content FROM personal_notes WHERE name = ?", (name.lower(),)
+            ).fetchone()
+            return row["content"] if row else None
+
+    def list_personal_notes(self, limit: int = 100) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                "SELECT name, content, updated_at FROM personal_notes "
+                "ORDER BY updated_at DESC LIMIT ?",
+                (max(1, min(int(limit), 200)),),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def delete_personal_note(self, name: str) -> bool:
+        with self.get_connection() as conn:
+            cur = conn.execute(
+                "DELETE FROM personal_notes WHERE name = ?", (name.lower(),)
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
+    # ----------------------------------------------------------------- Reminders
+    def add_reminder(self, chat_id: int, user_id: int, text: str, due_at: datetime) -> int:
+        stamp = due_at.strftime("%Y-%m-%d %H:%M:%S")
+        with self.get_connection() as conn:
+            cur = conn.execute(
+                "INSERT INTO reminders (chat_id, user_id, text, due_at) VALUES (?, ?, ?, ?)",
+                (chat_id, user_id, text, stamp),
+            )
+            conn.commit()
+            return int(cur.lastrowid)
+
+    def due_reminders(self, now: Optional[datetime] = None) -> List[Dict[str, Any]]:
+        stamp = (now or datetime.utcnow()).strftime("%Y-%m-%d %H:%M:%S")
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM reminders WHERE status = 'pending' AND due_at <= ? "
+                "ORDER BY due_at ASC",
+                (stamp,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def mark_reminder_fired(self, reminder_id: int) -> bool:
+        with self.get_connection() as conn:
+            cur = conn.execute(
+                "UPDATE reminders SET status = 'fired', fired_at = CURRENT_TIMESTAMP "
+                "WHERE id = ? AND status = 'pending'",
+                (reminder_id,),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
+    def cancel_reminder(self, reminder_id: int, user_id: Optional[int] = None) -> bool:
+        sql = "UPDATE reminders SET status = 'cancelled' WHERE id = ? AND status = 'pending'"
+        params: List[Any] = [reminder_id]
+        if user_id is not None:
+            sql += " AND user_id = ?"
+            params.append(user_id)
+        with self.get_connection() as conn:
+            cur = conn.execute(sql, params)
+            conn.commit()
+            return cur.rowcount > 0
+
+    def list_reminders(self, status: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+        sql = "SELECT * FROM reminders"
+        params: List[Any] = []
+        if status:
+            sql += " WHERE status = ?"
+            params.append(status)
+        sql += " ORDER BY due_at ASC LIMIT ?"
+        params.append(max(1, min(int(limit), 200)))
+        with self.get_connection() as conn:
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    # ---------------------------------------------------------------- Automation
+    def create_automation(
+        self,
+        name: str,
+        trigger_type: str,
+        trigger_config: str,
+        conditions: str,
+        actions: str,
+        cooldown_seconds: int = 60,
+        created_by: int = 0,
+        enabled: bool = False,
+    ) -> int:
+        with self.get_connection() as conn:
+            cur = conn.execute(
+                "INSERT INTO automations (name, enabled, trigger_type, trigger_config, "
+                "conditions, actions, cooldown_seconds, created_by) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    name,
+                    1 if enabled else 0,
+                    trigger_type,
+                    trigger_config,
+                    conditions,
+                    actions,
+                    int(cooldown_seconds),
+                    created_by,
+                ),
+            )
+            conn.commit()
+            return int(cur.lastrowid)
+
+    def get_automation(self, name: str) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM automations WHERE name = ?", (name.lower(),)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_automations(self, limit: int = 100) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM automations ORDER BY id DESC LIMIT ?",
+                (max(1, min(int(limit), 200)),),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def set_automation_enabled(self, name: str, enabled: bool) -> bool:
+        with self.get_connection() as conn:
+            cur = conn.execute(
+                "UPDATE automations SET enabled = ? WHERE name = ?",
+                (1 if enabled else 0, name.lower()),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
+    def delete_automation(self, name: str) -> bool:
+        with self.get_connection() as conn:
+            cur = conn.execute("DELETE FROM automations WHERE name = ?", (name.lower(),))
+            conn.commit()
+            return cur.rowcount > 0
+
+    def record_automation_run(self, name: str, error: str = "") -> None:
+        with self.get_connection() as conn:
+            conn.execute(
+                "UPDATE automations SET last_run = CURRENT_TIMESTAMP, "
+                "run_count = run_count + 1, last_error = ? WHERE name = ?",
+                (error[:500], name.lower()),
+            )
+            conn.commit()
+
+    # ----------------------------------------------------------------- Plugins
+    def set_plugin_enabled(self, name: str, enabled: bool, metadata: str = "") -> None:
+        with self.get_connection() as conn:
+            conn.execute(
+                "INSERT INTO plugins (name, enabled, metadata) VALUES (?, ?, ?) "
+                "ON CONFLICT(name) DO UPDATE SET enabled = excluded.enabled, "
+                "metadata = excluded.metadata",
+                (name.lower(), 1 if enabled else 0, metadata or "{}"),
+            )
+            conn.commit()
+
+    def get_plugin_enabled(self, name: str) -> Optional[bool]:
+        with self.get_connection() as conn:
+            row = conn.execute(
+                "SELECT enabled FROM plugins WHERE name = ?", (name.lower(),)
+            ).fetchone()
+            return bool(row["enabled"]) if row else None
+
+    def all_plugin_rows(self) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            rows = conn.execute("SELECT * FROM plugins ORDER BY name").fetchall()
+            return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------------ Task log
+    def log_task(
+        self,
+        task_id: str,
+        kind: str,
+        command: str,
+        status: str,
+        duration_seconds: float = 0.0,
+        error: str = "",
+    ) -> None:
+        with self.get_connection() as conn:
+            conn.execute(
+                "INSERT INTO task_log (task_id, kind, command, status, finished_at, "
+                "duration_seconds, error) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)",
+                (task_id, kind, command, status, float(duration_seconds), error[:500]),
+            )
+            # Bounded retention: keep the newest 200 rows.
+            conn.execute(
+                "DELETE FROM task_log WHERE id NOT IN "
+                "(SELECT id FROM task_log ORDER BY id DESC LIMIT 200)"
+            )
+            conn.commit()
+
+    def recent_tasks(self, limit: int = 20) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM task_log ORDER BY id DESC LIMIT ?",
+                (max(1, min(int(limit), 100)),),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
     def get_stats(self) -> Dict[str, Any]:
         with self.get_connection() as conn:
             groups_count = conn.execute("SELECT COUNT(*) FROM group_settings").fetchone()[0]
@@ -342,12 +722,20 @@ class Database:
             filters_count = conn.execute("SELECT COUNT(*) FROM filters").fetchone()[0]
             notes_count = conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0]
             logs_count = conn.execute("SELECT COUNT(*) FROM admin_logs").fetchone()[0]
+            archive_count = conn.execute("SELECT COUNT(*) FROM archive").fetchone()[0]
+            pending_reminders = conn.execute(
+                "SELECT COUNT(*) FROM reminders WHERE status = 'pending'"
+            ).fetchone()[0]
+            automations_count = conn.execute("SELECT COUNT(*) FROM automations").fetchone()[0]
             return {
                 "groups": groups_count,
                 "warnings": warnings_count,
                 "filters": filters_count,
                 "notes": notes_count,
-                "admin_logs": logs_count
+                "admin_logs": logs_count,
+                "archive": archive_count,
+                "reminders": pending_reminders,
+                "automations": automations_count,
             }
 
 # The path comes from REZE_DATABASE_URL (or REZE_DATA_DIR on PaaS volumes).

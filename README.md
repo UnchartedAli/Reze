@@ -1,408 +1,264 @@
-# 🌸 Reze — Advanced Telegram Userbot & Web Control Panel
+# REZE 2.0 — Personal Telegram Operating System
 
-**Developed by [UnchartedAli](https://t.me/yamods) · Official channel: [@yamods](https://t.me/yamods)**
+A Telegram **userbot platform** built on Telethon: an Extreme-ASCII message
+engine, a media studio, a multi-provider AI gateway, personal productivity
+tools, an automation engine, a manifest-validated plugin system and a
+dependency-free web control panel.
 
-![Version](https://img.shields.io/badge/version-1.1.0-06b6d4)
-![Python](https://img.shields.io/badge/python-3.11%2B-3b82f6)
-![Telethon](https://img.shields.io/badge/engine-Telethon%20MTProto-10b981)
-![License](https://img.shields.io/badge/license-MIT-9ca3af)
+Version **2.0.0** · Author **UnchartedAli** · Channel [@yamods](https://t.me/yamods) · MIT
 
 ```
-   ██████╗ ███████╗███████╗███████╗
-   ██╔══██╗██╔════╝╚══███╔╝██╔════╝
-   ██████╔╝█████╗    ███╔╝ █████╗  
-   ██╔══██╗██╔══╝   ███╔╝  ██╔══╝  
-   ██║  ██║███████╗███████╗███████╗
-   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝
+██████╗ ███████╗███████╗███████╗
+██╔══██╗██╔════╝╚══███╔╝██╔════╝
+██████╔╝█████╗    ███╔╝ █████╗
+██╔══██╗██╔══╝   ███╔╝  ██╔══╝
+██║  ██║███████╗███████╗███████╗
+╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝
+   PERSONAL TELEGRAM OS  //  v2.0.0
 ```
-**Reze** is a modular, production-focused Telegram **userbot** built with Python 3.11+, Telethon MTProto, SQLite, and an integrated Persian **web control panel**. It runs on a VPS **and** on managed platforms such as **Render, Railway, Koyeb, Fly.io, Docker, and PaaS services with a `PORT` variable**.
 
 ---
 
-## ✨ What's inside
-
-- **⚡ Telethon MTProto engine** — 2FA, session persistence, automatic reconnect, FloodWait-safe operations.
-- **🚀 PaaS-ready deployment** — binds to the platform `PORT` on `0.0.0.0`, exposes `/healthz`, handles `SIGTERM`, and ships with Docker, Render, Railway, and Fly configs plus a Koyeb guide.
-- **🔑 Portable session** — `REZE_SESSION_STRING` (Telethon StringSession) works on ephemeral filesystems with no interactive terminal. A helper script generates/converts it.
-- **🛡️ Group administration & protection** — `.ban`, `.kick`, `.mute`, `.purge`, `.pin`, `.tagall`, anti-flood, anti-raid, anti-link, blacklists, filters, warnings, notes.
-- **⏰ Profile clock** — automatic name/bio clock with IANA timezones (`Asia/Tehran`, `UTC`, ...), configurable templates, and Telegram length limits.
-- **🌐 Secure web panel** — dark RTL dashboard, PBKDF2-HMAC-SHA256 authentication, rate limiting, live logs, deployment diagnostics, and health endpoint.
-- **🧩 Plugin system** — discover, load, unload, and inspect custom Python plugins at runtime.
-- **🌍 Proxy support** — optional `REZE_PROXY=socks5://...` for networks where Telegram is filtered.
-
-### 🆕 In v1.1.0
-
-- Full deployment hardening for Render / Railway / Koyeb / Fly / Docker / VPS.
-- `StringSession` support + `scripts/generate_session.py`.
-- Public `/healthz` endpoint and Docker `HEALTHCHECK`.
-- Graceful `SIGTERM` shutdown and MTProto reconnect with exponential backoff.
-- Trust-proxy aware client IP handling and secure cookies behind HTTPS.
-- Panel login is disabled until a password is configured (`REZE_ALLOW_INSECURE_DEFAULT_LOGIN` is for local development only).
-
----
-
-## 🚀 Quick start (local / VPS)
-🇬🇧 VPS Installation on Ubuntu 24.04 (Docker Compose)
-
-This guide walks you through deploying Reze on an Ubuntu 24.04 VPS using Docker Compose. Once started in detached mode, Reze continues running after you disconnect from SSH, provided the server and Docker service remain running.
-
-Prerequisites
-
-- An Ubuntu 24.04 VPS
-- SSH access with "root" or a user with "sudo" privileges
-- A Telegram account for the userbot
-- Telegram API credentials from "my.telegram.org" (https://my.telegram.org)
-- A strong password for the web panel
-
-1. Connect to Your VPS
-
-From your terminal, connect to your server:
-
-ssh root@YOUR_SERVER_IP
-
-Replace "YOUR_SERVER_IP" with your VPS IP address.
-
-2. Install Git and Docker
-
-Update the package index and install the required packages:
-
-sudo apt update
-sudo apt install -y git docker.io docker-compose-v2
-
-Enable and start Docker:
-
-sudo systemctl enable --now docker
-
-Verify the installation:
-
-docker --version
-docker compose version
-
-If you are logged in as "root", you do not need to prefix Docker commands with "sudo".
-
-3. Clone the Repository
-
-Clone Reze into "/opt/Reze":
-
-sudo git clone https://github.com/UnchartedAli/Reze.git /opt/Reze
-cd /opt/Reze
-
-4. Configure Environment Variables
-
-Create your environment file from the example:
-
-cp .env.example .env
-nano .env
-
-Configure the required values:
-
-REZE_API_ID=YOUR_API_ID
-REZE_API_HASH=YOUR_API_HASH
-REZE_OWNER_ID=YOUR_TELEGRAM_USER_ID
-REZE_SESSION_STRING=
-REZE_PANEL_PASSWORD=YOUR_STRONG_PANEL_PASSWORD
-REZE_WEB_HOST=0.0.0.0
-
-Replace the placeholder values with your actual credentials:
-
-- "REZE_API_ID" and "REZE_API_HASH": Obtain these from "my.telegram.org" (https://my.telegram.org).
-- "REZE_OWNER_ID": Your numeric Telegram user ID.
-- "REZE_SESSION_STRING": Generate this in the next step.
-- "REZE_PANEL_PASSWORD": A strong, unique password for the web panel.
-- "REZE_WEB_HOST": Set this to "0.0.0.0" when the panel needs to be reachable through the server's network interface.
-
-If the current ".env.example" includes additional required variables, configure those as well.
-
-To save and exit Nano, press "Ctrl+O", then "Enter", and finally "Ctrl+X".
-
-Restrict access to the environment file:
-
-chmod 600 .env
-
-Security note: Never commit ".env" or publish its contents to GitHub.
-
-5. Build the Docker Image
-
-Build the application image:
-
-docker compose build
-
-6. Generate a Telegram Session
-
-Run the session generator:
-
-docker compose run --rm --no-deps reze python scripts/generate_session.py
-
-Follow the prompts to enter your Telegram phone number and verification code. If two-step verification is enabled, you may also be asked for your Telegram password.
-
-After the script successfully generates a session string, copy it into "REZE_SESSION_STRING" in your ".env" file.
-
-For example:
-
-REZE_SESSION_STRING=YOUR_GENERATED_SESSION_STRING
-
-Save the file and restrict its permissions again:
-
-chmod 600 .env
-
-Important: A Telegram session string grants access to your account. Treat it like a password. Never share it, post it in screenshots, or commit it to a public repository.
-
-7. Start Reze
-
-Build and start the service in the background:
-
-docker compose up -d --build
-
-Check the container status:
-
-docker compose ps
-
-View the application logs:
-
-docker compose logs -f reze
-
-Press "Ctrl+C" to stop following the logs. This does not stop the running container.
-
-After a successful startup, the logs should indicate that Reze connected to Telegram and started listening for commands.
-
-8. Access the Web Panel
-
-If Docker publishes port "8080" and the server firewall allows access, open the following URL in your browser:
-
-http://YOUR_SERVER_IP:8080
-
-Replace "YOUR_SERVER_IP" with your VPS IP address and sign in using your panel credentials. The default username is "admin" unless it has been changed in the configuration.
-
-You can also check the health endpoint:
-
-http://YOUR_SERVER_IP:8080/healthz
-
-Security recommendation: Do not expose the panel publicly over plain HTTP. For public access, configure HTTPS using a reverse proxy such as Nginx and a valid TLS certificate.
-
-9. Manage the Service
-
-Check the container status:
-
-docker compose ps
-
-Follow application logs:
-
-docker compose logs -f reze
-
-Restart Reze:
-
-docker compose restart reze
-
-Stop the Compose stack:
-
-docker compose down
-
-Start it again:
-
-docker compose up -d
-
-Running Compose in detached mode allows Reze to continue after your SSH session or terminal closes. Automatic startup after a VPS reboot depends on the restart policy configured in "docker-compose.yml" and Docker starting successfully.
-
-10. Security and Maintenance
-
-- Use a strong, unique web panel password.
-- Keep ".env", Telegram session files, and the "data/" directory private.
-- Do not expose the web panel directly to the public internet without appropriate HTTPS and access controls.
-- Back up important application data and the SQLite database securely.
-- Run only one active instance per Telegram session.
-- If your session string is exposed, revoke the affected Telegram session from Telegram → Settings → Devices.
-- Keep Docker, Ubuntu, and the Reze deployment updated.
-
-For additional deployment options and platform-specific instructions, see ""DEPLOY.md"" (DEPLOY.md).
-
+## What is Reze?
+
+Reze logs in as **your own Telegram account** (a userbot) and exposes a dot
+command interface plus a web panel. It is designed as a personal operating
+system for Telegram: convert media, generate sticker packs, run AI commands,
+schedule reminders, automate small workflows, and inspect everything from a
+terminal-styled control panel.
+
+Everything is English-only, every message is rendered by one shared ASCII
+engine, and optional integrations (AI, FFmpeg, background removal) degrade
+gracefully instead of breaking the core commands.
+
+## Highlights
+
+- **Extreme-ASCII message engine** — CYBER / GHOST / TERMINAL / COMPACT themes,
+  framed panels, status tags, progress bars, tables, safe message splitting.
+- **REZE Studio** — image resize/compress/caption/meme/thumbnail, real 512×512
+  WebP static sticker conversion, real Telegram sticker-set creation, GIF and
+  video/audio conversion through FFmpeg, background removal through a configured
+  provider.
+- **REZE Intelligence** — OpenAI, Anthropic, Gemini and OpenAI-compatible
+  endpoints behind one gateway with timeouts, bounded retries, explicit fallback
+  and usage metadata. No provider SDK required.
+- **Plugin ecosystem** — validated manifests, declared capabilities, dependency
+  checks, duplicate-command detection, per-plugin settings, enable/disable with
+  honest isolation limits.
+- **Automation** — trigger → condition → action rules with cooldowns, hourly
+  caps, recursion guards and an allowlisted internal command dispatcher.
+- **Personal tools** — archive, notes, bookmarks, reminders, bounded chat search
+  and a dependency-free QR generator.
+- **Web panel** — real service state, plugin/task management, settings, logs,
+  archive and automation editing; session auth, CSRF tokens, strict CSP, no
+  JavaScript.
+- **Task manager** — bounded concurrency, queue limits, per-task timeout,
+  cancellation and progress reporting.
+
+## Requirements
+
+| Component | Requirement |
+| --- | --- |
+| Python | 3.11 or newer |
+| Telegram | API id/hash from https://my.telegram.org and an authorized session |
+| Images | `Pillow` (installed from `requirements.txt`) |
+| Video/audio | **FFmpeg** on `PATH` (optional) — `winget install Gyan.FFmpeg` on Windows, `apt install ffmpeg` on Debian/Ubuntu |
+| AI | An API key for one supported provider (optional) |
+
+## Quick start
 
 ```bash
-git clone <YOUR_REPO_URL> reze && cd reze
-python3 -m venv venv && source venv/bin/activate
+python -m venv .venv
+# Windows: .venv\Scripts\activate      Linux/macOS: source .venv/bin/activate
 pip install -r requirements.txt
 
-cp .env.example .env
-nano .env          # fill REZE_API_ID, REZE_API_HASH, REZE_OWNER_ID, REZE_PANEL_PASSWORD
+cp .env.example .env        # then fill in the values
+python scripts/generate_session.py    # creates a StringSession
+# paste the printed string into REZE_SESSION_STRING in .env
 
 python -m reze.app
 ```
 
-Reze loads `.env` automatically for local/VPS runs; PaaS platforms inject the variables directly.
+The console prints the ASCII banner, the panel URL and the health endpoint.
+Open `http://127.0.0.1:8080`, sign in with `REZE_PANEL_USERNAME` and the panel
+password, then send `.help` to your own account from any chat.
 
-The panel starts at `http://127.0.0.1:8080` (health: `http://127.0.0.1:8080/healthz`).
-If the account is not logged in yet, run the bot once with a terminal and enter the phone/code, **or** generate a portable session:
+> A userbot acts as **you**. Only run Reze on an account you own, and keep the
+> session string and API hash private.
 
-```bash
-python scripts/generate_session.py
+## Configuration
+
+All settings use the `REZE_` prefix and are documented in
+[`.env.example`](.env.example). The most important ones:
+
+| Variable | Purpose |
+| --- | --- |
+| `REZE_API_ID`, `REZE_API_HASH` | Telegram application credentials |
+| `REZE_OWNER_ID` | Account allowed to run owner-only commands |
+| `REZE_SESSION_STRING` | Portable session (recommended on PaaS) |
+| `REZE_PANEL_PASSWORD` / `REZE_PANEL_PASSWORD_HASH` | Panel login (exactly one) |
+| `REZE_WEB_HOST`, `REZE_WEB_PORT` | Panel bind address (loopback by default) |
+| `REZE_AI_PROVIDER`, `REZE_AI_MODEL`, `REZE_AI_API_KEY` | AI gateway |
+| `REZE_MEDIA_MAX_INPUT_MB`, `REZE_MEDIA_QUALITY` | Media limits |
+| `REZE_TASK_CONCURRENCY`, `REZE_TASK_QUEUE_LIMIT` | Background work limits |
+
+Runtime preferences (theme, prefix, AI model, media defaults, log level) are
+stored in SQLite and edited with `.config` or the panel. Secrets are
+environment-only and are never rendered by the panel.
+
+## Commands
+
+Every command has usage help: `.help <command>`. Full reference:
+[docs/COMMANDS.md](docs/COMMANDS.md).
+
+| Family | Examples |
+| --- | --- |
+| Core | `.help` `.ping` `.status` `.info` `.stats` `.diagnostics` `.logs` |
+| Appearance | `.theme` `.preview` `.config` `.prefix` |
+| Presence | `.setonlinepermanently on/off/status` |
+| Media | `.sticker` `.stickerpack` `.addsticker` `.resize` `.compress` `.meme` `.caption` `.thumbnail` `.gif` `.tovideo` `.toaudio` `.trim` `.speed` `.toimage` `.removebg` `.download` |
+| AI | `.ai` `.summarize` `.translate` `.rewrite` `.digest` `.describe` `.aiinfo` |
+| Personal | `.save` `.find` `.bookmark` `.notes` `.remind` `.schedule` `.search` `.links` `.files` `.qr` `.whois` `.chatinfo` `.id` |
+| Tasks | `.queue` `.cancel` `.status` |
+| Plugins | `.plugins` `.plugin` `.plugininfo` `.plugintemplate` |
+| Automation | `.automation list/show/create/enable/disable/delete` |
+| Groups | `.ban` `.kick` `.mute` `.warn` `.purge` `.pin` `.admins` `.tagall` `.antiflood` `.lock` `.filter` |
+
+Long outputs are split automatically at Telegram's 4096-character limit, and
+code spans are rebalanced so pagination never breaks Markdown parsing.
+
+## Always-online presence
+
+`.setonlinepermanently on` keeps the account showing as online while Reze runs:
+the presence service refreshes `account.updateStatus(offline=False)` every
+`REZE_PRESENCE_INTERVAL_SECONDS` (default 60s). It is off by default, owner-only,
+persisted in SQLite, and survives restarts. `.setonlinepermanently off` returns
+to normal Telegram presence; `.setonlinepermanently status` reports the refresh
+count, last refresh, interval and any FloodWait cooldown. It cannot override
+account privacy settings that hide "online" from other users.
+
+## Media studio
+
+- `.sticker` converts a replied image into a valid **512×512 WebP** static
+  sticker (transparent padding, size checked).
+- `.stickerpack <title> | <emoji>` asks for a confirmation code, then creates a
+  real sticker set with `messages.CreateStickerSet` and reports the pack URL
+  **only after Telegram confirms it**.
+- `.addsticker <short_name> [emoji]` uses `messages.AddStickerToSet`.
+- FFmpeg commands check for the binary before starting and explain how to
+  install it when it is missing.
+- Every conversion runs in an isolated temporary directory that is deleted in a
+  `finally` block; input and output sizes are bounded by configuration.
+
+## AI gateway
+
+`.ai`, `.summarize`, `.translate`, `.rewrite`, `.digest` and `.describe` work
+only when a provider is configured. Requests use the official HTTP APIs, honor
+timeouts, retry only on rate limits/timeouts, and never log prompts or
+responses. Vision is used only when the configured model is known to accept
+images. Fallback is opt-in via `REZE_AI_FALLBACK` and is disclosed in the
+response metadata (provider, model, duration, tokens). See
+[docs/AI.md](docs/AI.md).
+
+## Web panel
+
+`python -m reze.app` also starts the panel (default `127.0.0.1:8080`).
+
+- Dashboard: uptime, Telegram state, plugin/task counts, integration readiness,
+  recent errors, deployment notes.
+- Plugins: manifest metadata, declared capabilities, enable/disable, isolation
+  warnings.
+- Tasks: running/queued/finished tasks with cancellation.
+- Settings: validated preferences (theme, prefix, AI model, media limits, log
+  level).
+- Logs: in-memory buffer with severity filter; secrets masked.
+- Archive and automations: local notes/bookmarks/reminders and rule editing.
+
+Security: session cookies are `HttpOnly; SameSite=Lax` (`Secure` over HTTPS),
+every POST carries a session-bound CSRF token, bodies are size-limited, and the
+panel binds to loopback unless configured otherwise. See
+[docs/SECURITY.md](docs/SECURITY.md).
+
+## Plugins
+
+Drop a file in `reze/plugins/`, declare a `MANIFEST`, and restart (or
+`.plugin enable <id>`). The manager validates the manifest, checks dependencies,
+rejects duplicate commands, and isolates failures per plugin.
+
+```python
+MANIFEST = {
+    "name": "My Plugin", "id": "my_plugin", "version": "1.0.0",
+    "description": "Does one useful thing.",
+    "commands": ["mycommand"],
+    "permissions": ["telegram.message"],
+    "min_reze_version": "2.0.0",
+}
 ```
 
-> **Windows:** create the virtual environment with `py -m venv venv` and activate it with
-> `.\venv\Scripts\Activate.ps1` before running the commands above.
+Full guide and template: [docs/PLUGIN_GUIDE.md](docs/PLUGIN_GUIDE.md) and
+`.plugintemplate`.
 
----
+**Isolation honesty:** plugins run in-process with the same privileges as
+Reze. The manifest is a consent document, not a sandbox.
 
-## ☁️ Deploy anywhere
+## Automation
 
-| Platform | How | Always-on? | Persistent data |
-| :--- | :--- | :--- | :--- |
-| **VPS (systemd)** | `deploy/reze.service` | ✅ | ✅ local `data/` |
-| **Docker / Compose** | `docker compose up -d --build` | ✅ | ✅ `./data` volume |
-| **Render** | `render.yaml` Blueprint / Docker | ⚠️ free sleeps | paid Disk |
-| **Railway** | `railway.json` + Dockerfile | ✅ | Volume `/data` |
-| **Koyeb** | Dockerfile, port `8080` | ⚠️ free scale-to-zero | Volume `/data` |
-| **Fly.io** | `fly.toml` | ✅ | Volume `/data` |
+Rules are persisted in SQLite and run as `trigger → conditions → actions`:
+schedule, interval, keyword or failed-task triggers; save, remind, notify,
+AI-summary or allowlisted-command actions. Rules are created disabled and must
+be validated before enabling. Cooldowns, hourly caps and recursion guards apply.
 
-**→ Full step-by-step guides (Persian): [`DEPLOY.md`](DEPLOY.md)**
-
-### Render (summary)
-
-1. Push to GitHub → Render **New → Blueprint** → select repo (`render.yaml` is auto-detected).
-2. Set `REZE_API_ID`, `REZE_API_HASH`, `REZE_OWNER_ID`, `REZE_SESSION_STRING`, `REZE_PANEL_PASSWORD`.
-3. Health check is already `/healthz`. Use a paid always-on instance for a 24/7 userbot.
-
-### Railway / Koyeb (summary)
-
-1. Deploy from GitHub; both detect the `Dockerfile`.
-2. Add the same environment variables; set `REZE_WEB_HOST=0.0.0.0`.
-3. Health check: `/healthz`. For persistence mount a volume at `/data` and set `REZE_DATA_DIR=/data`.
-4. Run **one** instance only.
-
-> ⚠️ **Never set `REZE_WEB_PORT` on a PaaS that injects `PORT`** (Render/Railway/Koyeb). Reze picks `PORT` automatically. Setting it manually can break the platform's routing.
-
----
-
-## 🔐 Sessions & persistence
-
-| Mode | Variable | Use case |
-| :--- | :--- | :--- |
-| String session | `REZE_SESSION_STRING` | Render / Railway / Koyeb / any ephemeral filesystem |
-| File session | `REZE_SESSION_PATH` | VPS / Docker with a persistent volume |
-
-Generate a string session locally:
-
-```bash
-python scripts/generate_session.py
-# or convert an existing file:
-python scripts/generate_session.py --from-file data/reze.session --api-id ... --api-hash ...
+```text
+.automation create daily | trigger=schedule at=18:30 | action=notify text=Review the day
+.automation enable daily
 ```
 
-The app also keeps a copy of the active string session at `<data_dir>/session_string.txt` when using the string backend, so it can be recovered from a mounted volume.
+See [docs/AUTOMATION.md](docs/AUTOMATION.md).
 
-**SQLite data** (filters, settings, warnings, notes) lives in `<data_dir>/reze.db`. Mount `/app/data` (Render), `/data` (Railway/Koyeb/Fly), or `./data` (Compose) to keep it across restarts.
-
----
-
-## ⚙️ Configuration
-
-All configuration is environment-based. See [`.env.example`](.env.example) for every option and [`DEPLOY.md`](DEPLOY.md) for the full table.
-
-Minimum for a working hosted userbot:
-
-```env
-REZE_API_ID=12345678
-REZE_API_HASH=abcdef...
-REZE_OWNER_ID=123456789
-REZE_SESSION_STRING=1BVtsOK4...
-REZE_PANEL_PASSWORD=a-strong-password
-REZE_WEB_HOST=0.0.0.0
-```
-
-Optional highlights:
-
-- `REZE_PUBLIC_URL` — public panel URL (auto-detected on Render/Railway/Koyeb).
-- `REZE_PROXY` — SOCKS5/HTTP MTProto proxy.
-- `REZE_DATA_DIR` — persistent volume path.
-- `REZE_TIMEZONE` — default `Asia/Tehran`.
-- `REZE_ALLOW_INSECURE_DEFAULT_LOGIN` — local development only, never on a public deployment.
-
----
-
-## 🌐 Web control panel
-
-- `/` — dashboard, live stats, Telegram connection status, deployment diagnostics.
-- `/profile` — name/bio clock settings.
-- `/groups`, `/security`, `/filters` — group management and automation.
-- `/logs` — live in-memory logs (credentials are masked).
-- `/settings` — platform, session backend, storage, and environment checklist.
-- `/healthz` — public health endpoint for PaaS health checks (no auth).
-
-The panel shows the creator and official channel in the header, sidebar, and footer.
-
----
-
-## 🤖 Commands
-
-| Category | Commands |
-| :--- | :--- |
-| General | `.help`, `.ping`, `.alive`, `.credits`, `.info`, `.id`, `.stats`, `.uptime`, `.version`, `.settings`, `.logs`, `.webpanel`, `.shutdown`, `.restart` |
-| Profile | `.setname`, `.setbio`, `.nameclock`, `.bioclock`, `.clockformat`, `.timezone`, `.clockstatus`, `.clockpreview`, `.setprefix` |
-| Admin | `.ban`, `.unban`, `.kick`, `.mute`, `.unmute`, `.purge`, `.del`, `.pin`, `.unpin`, `.admins`, `.tagall`, `.slowmode` |
-| Moderation | `.warn`, `.warnings`, `.resetwarns`, `.rules`, `.welcome`, `.goodbye`, `.filter`, `.blacklist`, `.note` |
-| Security | `.antiflood`, `.antiraid`, `.antilink`, `.lock`, `.unlock` |
-| Privacy | `.privacy`, `.sessions`, `.backup` |
-| Plugins | `.plugins`, `.plugin` |
-
-`.credits` (aliases: `creator`, `developer`, `support`) prints the author and channel.
-
----
-
-## 📂 Project structure
-
-```
-reze/
-├── app.py                  # Bootstrap: panel + MTProto + scheduler, graceful shutdown
-├── config.py               # Env configuration, PaaS/platform detection
-├── telegram_client.py      # Telethon client, StringSession, proxy, reconnect
-├── database.py             # SQLite WAL persistence (data dir aware)
-├── scheduler.py            # Name/Bio clock with FloodWait backoff
-├── command_router.py       # Dot-command parser and dispatcher
-├── plugin_manager.py       # Dynamic plugin loader
-├── commands/               # Modular command suites
-├── modules/                # AntiFlood, AntiRaid, filters, greetings, notes
-├── web/
-│   ├── app.py              # HTTP panel, health endpoint, RTL UI
-│   └── auth.py             # PBKDF2 hashing, sessions, rate limiting
-└── plugins/                # Custom user plugins
-
-Dockerfile                  # Production image (drops to non-root, volume-aware)
-docker-compose.yml          # VPS deployment
-render.yaml                 # Render Blueprint
-railway.json                # Railway config
-fly.toml                    # Fly.io config
-deploy/                     # systemd, nginx, container entrypoint
-scripts/                    # generate_session.py, generate_hash.py, healthcheck.py
-DEPLOY.md                   # Full Persian deployment guide
-```
-
----
-
-## 🛡️ Security notes
-
-- Use a strong `REZE_PANEL_PASSWORD` (or `REZE_PANEL_PASSWORD_HASH`).
-- Never commit `.env`, `data/`, session files, or `session_string.txt`.
-- Run one instance per Telegram session.
-- Keep the panel behind HTTPS when exposed publicly.
-- Revoke a leaked session from Telegram → Settings → Devices immediately.
-
----
-
-## 🧪 Tests
+## Testing
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
----
+The suite covers the ASCII engine, configuration, storage, auth and CSRF, the
+task manager, confirmations, manifests and plugin isolation, media helpers,
+sticker request construction with a fake client, AI adapters and error mapping,
+the web panel over real HTTP, the QR encoder and the automation engine. It
+requires no Telegram or paid AI credentials. Details and limitations:
+[docs/TESTING.md](docs/TESTING.md).
 
-## 💚 Credits
+## Project layout
 
-**Reze** is developed and maintained by **[UnchartedAli](https://t.me/yamods)**.
-Official Telegram channel: **[@yamods](https://t.me/yamods)**.
+```
+reze/
+  app.py             application wiring and lifecycle
+  command_router.py  command registry, permissions, cooldowns, long replies
+  plugin_manager.py  plugin lifecycle and settings
+  config.py          settings and deployment detection
+  ui/                ASCII engine and themes
+  core/              task manager and confirmations
+  media/             Pillow images, FFmpeg, sticker sets, workspaces
+  ai/                provider adapters and gateway
+  automation/        rule engine
+  productivity/      QR generator, reminders
+  commands/          command suites
+  web/               panel server, pages, auth, theme
+  plugins/           built-in example plugins
+docs/                security, plugin, command, AI, automation, testing docs
+tests/               unittest suite
+```
 
-If Reze is useful to you, join the channel and share the project.
+## Known limitations
 
----
+- No OS-level sandbox for third-party plugins (documented, not simulated).
+- Animated/video sticker sets are not implemented; only the static WebP path.
+- `.digest`, `.search` and `.links` are bounded scans, not full-history search.
+- The QR generator covers byte mode, levels L/M and versions 1–10.
+- FFmpeg is required for video/audio commands and is not bundled.
 
-## 📜 License
+See [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md).
 
-Released under the **MIT License** — see [LICENSE](LICENSE).
+## License and credits
+
+MIT. Built by **UnchartedAli** — channel [@yamods](https://t.me/yamods).

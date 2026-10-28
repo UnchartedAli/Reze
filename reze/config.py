@@ -152,6 +152,47 @@ class Settings(BaseModel):
     # ------------------------------------------------------------- Safety limits
     max_purge_limit: int = Field(default=100, alias="REZE_MAX_PURGE_LIMIT")
     max_tagall_limit: int = Field(default=50, alias="REZE_MAX_TAGALL_LIMIT")
+    search_scan_limit: int = Field(default=200, alias="REZE_SEARCH_SCAN_LIMIT")
+
+    # ------------------------------------------------------ Identity and theme
+    theme: str = Field(default="CYBER", alias="REZE_THEME")
+    compact_mode: bool = Field(default=False, alias="REZE_COMPACT_MODE")
+    # How often the optional "always online" mode refreshes the account status.
+    presence_interval_seconds: int = Field(default=60, alias="REZE_PRESENCE_INTERVAL_SECONDS")
+
+    # ------------------------------------------------------ Background tasks
+    task_concurrency: int = Field(default=2, alias="REZE_TASK_CONCURRENCY")
+    task_queue_limit: int = Field(default=8, alias="REZE_TASK_QUEUE_LIMIT")
+    task_timeout_seconds: int = Field(default=300, alias="REZE_TASK_TIMEOUT_SECONDS")
+
+    # ------------------------------------------------------------ Media studio
+    media_work_dir: str = Field(default="", alias="REZE_MEDIA_WORK_DIR")
+    media_max_input_mb: int = Field(default=20, alias="REZE_MEDIA_MAX_INPUT_MB")
+    media_max_output_mb: int = Field(default=48, alias="REZE_MEDIA_MAX_OUTPUT_MB")
+    media_quality: int = Field(default=82, alias="REZE_MEDIA_QUALITY")
+    ffmpeg_path: str = Field(default="", alias="REZE_FFMPEG_PATH")
+    removebg_api_key: str = Field(default="", alias="REZE_REMOVEBG_API_KEY")
+
+    # ------------------------------------------------------ AI gateway
+    ai_provider: str = Field(default="", alias="REZE_AI_PROVIDER")
+    ai_model: str = Field(default="", alias="REZE_AI_MODEL")
+    ai_api_key: str = Field(default="", alias="REZE_AI_API_KEY")
+    ai_base_url: str = Field(default="", alias="REZE_AI_BASE_URL")
+    ai_fallback: List[str] = Field(default_factory=list, alias="REZE_AI_FALLBACK")
+    ai_timeout_seconds: int = Field(default=60, alias="REZE_AI_TIMEOUT_SECONDS")
+    ai_max_input_chars: int = Field(default=12000, alias="REZE_AI_MAX_INPUT_CHARS")
+    ai_max_output_tokens: int = Field(default=900, alias="REZE_AI_MAX_OUTPUT_TOKENS")
+    ai_vision: str = Field(default="auto", alias="REZE_AI_VISION")
+
+    # ------------------------------------------------------------ Web security
+    web_trust_proxy: bool = Field(default=False, alias="REZE_WEB_TRUST_PROXY")
+    session_ttl_seconds: int = Field(default=14400, alias="REZE_SESSION_TTL_SECONDS")
+    web_max_body_bytes: int = Field(default=262144, alias="REZE_WEB_MAX_BODY_BYTES")
+
+    # ------------------------------------------------------------ Automation
+    automation_enabled: bool = Field(default=True, alias="REZE_AUTOMATION_ENABLED")
+    automation_max_rules: int = Field(default=50, alias="REZE_AUTOMATION_MAX_RULES")
+    automation_runs_per_hour: int = Field(default=30, alias="REZE_AUTOMATION_RUNS_PER_HOUR")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -206,6 +247,29 @@ class Settings(BaseModel):
     def host_port(self) -> int:
         """Port advertised to the hosting platform."""
         return int(self.web_port)
+
+    @property
+    def media_work_path(self) -> str:
+        """Writable scratch directory for media processing."""
+        return self.media_work_dir or os.path.join(self.data_dir or "data", "media")
+
+    @property
+    def ai_enabled(self) -> bool:
+        """True when a provider, model and credential are all configured."""
+        return bool(self.ai_provider and self.ai_model and self.ai_api_key)
+
+    @property
+    def ai_vision_enabled(self) -> bool:
+        """Vision is opt-in: ``auto`` only enables known multimodal models."""
+        mode = (self.ai_vision or "auto").strip().lower()
+        if mode in {"on", "true", "1", "yes"}:
+            return True
+        if mode in {"off", "false", "0", "no"}:
+            return False
+        model = (self.ai_model or "").lower()
+        markers = ("gpt-4o", "gpt-4.1", "gpt-4-vision", "o4", "claude-3", "claude-4",
+                   "claude-sonnet", "claude-opus", "gemini-1.5", "gemini-2", "vision")
+        return any(marker in model for marker in markers)
 
     # ------------------------------------------------------------------ Loading
     @classmethod

@@ -1,758 +1,604 @@
 """
-Reze Web Control Panel Server.
+Reze Web Control Panel server.
 
-A dependency-free HTTP panel built on Python's standard library with a modern
-dark dashboard, deployment diagnostics, a public health endpoint for PaaS
-platforms, and Persian UI.
+Dependency-free HTTP server built on the standard library. Every page renders
+real backend state, every state-changing request requires a session-bound CSRF
+token, and every administrative route is authenticated server-side.
 
-Designed and maintained by UnchartedAli — https://t.me/yamods
+Security posture:
+* loopback binding by default (``REZE_WEB_HOST``);
+* proxy headers ignored unless ``REZE_WEB_TRUST_PROXY`` is enabled;
+* request bodies capped at ``REZE_WEB_MAX_BODY_BYTES``;
+* no JavaScript, no inline event handlers, strict CSP;
+* logs and diagnostics are redacted by the logging filter and never expose
+  sessions, API hashes or keys.
 """
 
 import html
-import hmac
 import json
 import time
 import urllib.parse
+from datetime import datetime, timezone
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from datetime import datetime, timezone
-from reze import __author__, __channel__, __channel_url__, __version__
-from reze.config import settings
-from reze.database import db
+
+from reze import __version__
+from reze.automation.engine import AutomationError, automation_engine
 from reze.command_router import router
+from reze.config import settings
+from reze.core.tasks import task_manager
+from reze.database import db
 from reze.logging_config import LOG_BUFFER, logger
+from reze.media import ffmpeg, images
+from reze.plugin_manager import plugin_manager
+from reze.preferences import PREFERENCE_KEYS, all_prefs, set_pref
+from reze.runtime import run_coroutine
 from reze.telegram_client import telegram_manager
+from reze.ui.themes import THEMES
+from reze.web import pages
 from reze.web.auth import (
-    verify_password,
-    create_session,
-    get_session,
-    destroy_session,
     check_rate_limit,
+    create_session,
+    csrf_token_for,
+    destroy_session,
+    get_session,
     record_failed_login,
+    reset_rate_limit,
+    validate_csrf,
+    verify_password,
 )
+from reze.web.theme import esc, render_login, render_shell
 
 PANEL_STARTED_AT = time.time()
 HEALTH_PATHS = {"/health", "/healthz", "/livez", "/readyz"}
-
-PANEL_CSS = """
-:root {
-    --bg-dark: #0b0f19;
-    --card-bg: #111827;
-    --border-color: #1f2937;
-    --accent-cyan: #06b6d4;
-    --accent-blue: #3b82f6;
-    --text-light: #f3f4f6;
-    --text-muted: #9ca3af;
-    --danger: #ef4444;
-    --success: #10b981;
-    --warning: #f59e0b;
-}
-* { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Tahoma, sans-serif; }
-body { background-color: var(--bg-dark); color: var(--text-light); min-height: 100vh; display: flex; flex-direction: column; }
-header { background: var(--card-bg); border-bottom: 1px solid var(--border-color); padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
-.brand { font-size: 1.3rem; font-weight: 700; color: var(--accent-cyan); display: flex; align-items: center; gap: 0.5rem; }
-.badge { font-size: 0.75rem; background: #1e293b; color: var(--accent-cyan); padding: 0.2rem 0.5rem; border-radius: 4px; }
-.header-meta { color: var(--text-muted); font-size: 0.85rem; }
-.header-meta a { color: var(--accent-cyan); text-decoration: none; }
-.container { display: flex; flex: 1; }
-aside { width: 260px; background: #0f172a; border-left: 1px solid var(--border-color); padding: 1.5rem 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
-aside .nav-title { color: var(--text-muted); font-size: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; margin: 0.5rem 0.5rem 0; }
-.nav-item { display: block; padding: 0.75rem 1rem; color: var(--text-muted); text-decoration: none; border-radius: 8px; transition: all 0.2s; }
-.nav-item:hover, .nav-item.active { background: rgba(6, 182, 212, 0.1); color: var(--accent-cyan); border-right: 3px solid var(--accent-cyan); }
-.sidebar-credit { margin-top: auto; border-top: 1px solid var(--border-color); padding-top: 1rem; color: var(--text-muted); font-size: 0.78rem; line-height: 1.8; }
-.sidebar-credit a { color: var(--accent-cyan); text-decoration: none; }
-main { flex: 1; padding: 2rem; overflow-y: auto; }
-h2 { margin-bottom: 1.25rem; font-size: 1.35rem; }
-h3 { margin-bottom: 0.75rem; font-size: 1.05rem; }
-.card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; }
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
-.stat-box { background: #1e293b; border-radius: 8px; padding: 1rem; border-right: 4px solid var(--accent-cyan); }
-.stat-val { font-size: 1.8rem; font-weight: bold; color: #fff; margin-top: 0.5rem; }
-.stat-label { color: var(--text-muted); font-size: 0.85rem; }
-.btn { display: inline-block; padding: 0.6rem 1.2rem; background: var(--accent-cyan); color: #000; text-decoration: none; border-radius: 6px; font-weight: 600; border: none; cursor: pointer; }
-.btn-danger { background: var(--danger); color: #fff; }
-.form-group { margin-bottom: 1rem; }
-.form-group label { display: block; margin-bottom: 0.4rem; color: var(--text-muted); font-size: 0.9rem; }
-input, select, textarea { width: 100%; padding: 0.6rem 0.8rem; background: #1e293b; border: 1px solid var(--border-color); border-radius: 6px; color: #fff; }
-table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-th, td { padding: 0.75rem; text-align: right; border-bottom: 1px solid var(--border-color); vertical-align: top; }
-th { color: var(--text-muted); font-weight: 600; }
-code { background: #0f172a; border: 1px solid var(--border-color); padding: 0.1rem 0.35rem; border-radius: 4px; font-size: 0.85rem; word-break: break-all; }
-.log-stream { background: #000; color: #10b981; font-family: ui-monospace, Consolas, monospace; padding: 1rem; border-radius: 8px; max-height: 400px; overflow-y: auto; font-size: 0.85rem; line-height: 1.7; }
-.alert { border-radius: 8px; padding: 0.9rem 1rem; margin-bottom: 1rem; font-size: 0.9rem; line-height: 1.8; border: 1px solid; }
-.alert-warn { background: rgba(245, 158, 11, 0.08); border-color: rgba(245, 158, 11, 0.4); color: #fbbf24; }
-.alert-info { background: rgba(59, 130, 246, 0.08); border-color: rgba(59, 130, 246, 0.4); color: #93c5fd; }
-.alert-danger { background: rgba(239, 68, 68, 0.08); border-color: rgba(239, 68, 68, 0.4); color: #fca5a5; }
-.pill { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.78rem; font-weight: 700; }
-.pill.ok { background: rgba(16, 185, 129, 0.15); color: var(--success); }
-.pill.bad { background: rgba(239, 68, 68, 0.15); color: var(--danger); }
-.muted { color: var(--text-muted); }
-footer { border-top: 1px solid var(--border-color); padding: 1rem 2rem; text-align: center; color: var(--text-muted); font-size: 0.82rem; }
-footer a { color: var(--accent-cyan); text-decoration: none; }
-@media (max-width: 820px) {
-    .container { flex-direction: column; }
-    aside { width: 100%; border-left: none; border-bottom: 1px solid var(--border-color); }
-    main { padding: 1rem; }
-    header { padding: 1rem; }
-}
-"""
-
-
-def _esc(value) -> str:
-    """Escape untrusted values before rendering them in HTML."""
-    return html.escape(str(value if value is not None else ""))
-
-
-def render_template(title: str, content: str, active_tab: str = "dashboard") -> str:
-    nav_items = [
-        ("dashboard", "📊 داشبورد", "/"),
-        ("profile", "⏰ ساعت و پروفایل", "/profile"),
-        ("groups", "👥 مدیریت گروه‌ها", "/groups"),
-        ("antiflood", "🛡️ ضد اسپم و هجوم", "/security"),
-        ("filters", "🔍 فیلترها و کلمات", "/filters"),
-        ("logs", "📋 لاگ‌های زنده", "/logs"),
-        ("settings", "⚙️ تنظیمات سیستم", "/settings"),
-    ]
-    nav_html = "".join([
-        f'<a href="{url}" class="nav-item {"active" if key == active_tab else ""}">{label}</a>'
-        for key, label, url in nav_items
-    ])
-
-    return f"""<!DOCTYPE html>
-<html lang="fa" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="author" content="{__author__}">
-    <meta name="description" content="Reze Telegram Userbot control panel by {__author__} ({__channel__})">
-    <title>Reze Panel — {_esc(title)}</title>
-    <style>{PANEL_CSS}</style>
-</head>
-<body>
-    <header>
-        <div class="brand">🌸 Reze Control Panel <span class="badge">v{__version__}</span></div>
-        <div class="header-meta">ساخته‌شده توسط <strong>{__author__}</strong> · کانال: <a href="{__channel_url__}" target="_blank" rel="noopener">{__channel__}</a></div>
-        <div><a href="/logout" class="btn btn-danger" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">خروج</a></div>
-    </header>
-    <div class="container">
-        <aside>
-            <div class="nav-title">منوی مدیریت</div>
-            {nav_html}
-            <div class="sidebar-credit">
-                🌸 Reze Userbot v{__version__}<br>
-                سازنده: <a href="{__channel_url__}" target="_blank" rel="noopener">{__author__}</a><br>
-                کانال رسمی: <a href="{__channel_url__}" target="_blank" rel="noopener">{__channel__}</a>
-            </div>
-        </aside>
-        <main>{content}</main>
-    </div>
-    <footer>
-        ساخته‌شده با ❤️ توسط <strong>{__author__}</strong> —
-        کانال تلگرام: <a href="{__channel_url__}" target="_blank" rel="noopener">{__channel__}</a>
-        · نسخه {__version__}
-    </footer>
-</body>
-</html>"""
-
-
-def render_login_page(error: str = "", setup_html: str = "") -> str:
-    footer = (
-        f'ساخته‌شده توسط <strong>{__author__}</strong> · '
-        f'<a href="{__channel_url__}" target="_blank" rel="noopener">{__channel__}</a>'
-    )
-    error_html = f'<div class="err">{_esc(error)}</div>' if error else ""
-    body = setup_html if setup_html else f"""
-        {error_html}
-        <form method="POST" action="/login">
-            <input type="text" name="username" placeholder="نام کاربری" required autofocus>
-            <input type="password" name="password" placeholder="کلمه عبور" required>
-            <button type="submit">ورود به داشبورد</button>
-        </form>
-    """
-    return f"""<!DOCTYPE html>
-<html lang="fa" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="author" content="{__author__}">
-    <title>ورود به پنل Reze</title>
-    <style>
-        * {{ box-sizing: border-box; }}
-        body {{ background: #0b0f19; color: #f3f4f6; display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 100vh; margin: 0; font-family: Tahoma, -apple-system, sans-serif; padding: 1.5rem; }}
-        .card {{ background: #111827; padding: 2.2rem; border-radius: 12px; border: 1px solid #1f2937; width: 100%; max-width: 380px; }}
-        h2 {{ color: #06b6d4; text-align: center; margin: 0 0 0.4rem; }}
-        .sub {{ color: #9ca3af; text-align: center; font-size: 0.82rem; margin-bottom: 1.5rem; }}
-        input {{ width: 100%; padding: 0.75rem; margin-bottom: 1rem; background: #1e293b; border: 1px solid #374151; border-radius: 6px; color: #fff; box-sizing: border-box; }}
-        button {{ width: 100%; padding: 0.75rem; background: #06b6d4; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }}
-        .err {{ color: #ef4444; font-size: 0.85rem; margin-bottom: 1rem; text-align: center; line-height: 1.7; }}
-        .setup {{ color: #d1d5db; font-size: 0.85rem; line-height: 2; }}
-        .setup code {{ background: #0b0f19; border: 1px solid #1f2937; padding: 0.15rem 0.4rem; border-radius: 4px; word-break: break-all; }}
-        .setup a {{ color: #06b6d4; }}
-        footer {{ margin-top: 1.5rem; color: #9ca3af; font-size: 0.78rem; text-align: center; }}
-        footer a {{ color: #06b6d4; text-decoration: none; }}
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h2>🌸 Reze Panel</h2>
-        <div class="sub">پنل مدیریت یوزربات تلگرام</div>
-        {body}
-    </div>
-    <footer>{footer}</footer>
-</body>
-</html>"""
+SESSION_COOKIE = "reze_session"
+CSP = (
+    "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; "
+    "form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+)
 
 
 class RezePanelHandler(BaseHTTPRequestHandler):
     server_version = f"Reze/{__version__}"
     sys_version = ""
+    protocol_version = "HTTP/1.1"
 
     # ------------------------------------------------------------------ helpers
-    def get_auth_token(self) -> str:
-        cookie_header = self.headers.get("Cookie")
-        if cookie_header:
-            cookie = SimpleCookie(cookie_header)
-            if "reze_session" in cookie:
-                return cookie["reze_session"].value
+    def log_message(self, fmt, *args):  # route access logs through Reze's logger
+        logger.debug("panel: " + fmt, *args)
+
+    def auth_token(self) -> str:
+        header = self.headers.get("Cookie")
+        if header:
+            cookie = SimpleCookie(header)
+            if SESSION_COOKIE in cookie:
+                return cookie[SESSION_COOKIE].value
         return ""
 
-    def get_client_ip(self) -> str:
-        """Resolve the real client IP when running behind a PaaS proxy."""
-        for header in ("CF-Connecting-IP", "X-Real-IP"):
-            value = self.headers.get(header)
-            if value:
-                return value.split(",")[0].strip()
-        forwarded = self.headers.get("X-Forwarded-For")
-        if forwarded:
-            return forwarded.split(",")[0].strip()
-        return self.client_address[0]
+    def session(self):
+        return get_session(self.auth_token())
 
-    def request_is_https(self) -> bool:
-        proto = self.headers.get("X-Forwarded-Proto", "")
-        if proto:
-            return proto.split(",")[0].strip().lower() == "https"
+    def client_ip(self) -> str:
+        if settings.web_trust_proxy:
+            for header in ("CF-Connecting-IP", "X-Real-IP", "X-Forwarded-For"):
+                value = self.headers.get(header)
+                if value:
+                    return value.split(",")[0].strip()
+        return self.client_address[0] if self.client_address else "unknown"
+
+    def is_https(self) -> bool:
+        if settings.web_trust_proxy:
+            proto = (self.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip().lower()
+            if proto:
+                return proto == "https"
         return bool(settings.public_url and settings.public_url.startswith("https://"))
 
-    def is_authenticated(self) -> bool:
-        return bool(get_session(self.get_auth_token()))
+    def session_cookie(self, token: str, max_age: int = None) -> str:
+        parts = [f"{SESSION_COOKIE}={token}", "Path=/", "HttpOnly", "SameSite=Lax"]
+        if max_age is not None:
+            parts.append(f"Max-Age={int(max_age)}")
+        if self.is_https():
+            parts.append("Secure")
+        return "; ".join(parts)
 
-    def session_cookie(self, token: str) -> str:
-        cookie = f"reze_session={token}; Path=/; HttpOnly; SameSite=Lax"
-        if self.request_is_https():
-            cookie += "; Secure"
-        return cookie
-
-    def redirect(self, path: str, cookie: str = ""):
-        self.send_response(302)
-        self.send_header("Location", path)
-        if cookie:
-            self.send_header("Set-Cookie", cookie)
-        self.send_header("Content-Length", "0")
-        self.end_headers()
-
-    def _send_body(self, body: bytes, content_type: str, status: int = 200, cookie: str = ""):
+    def _send(self, body: bytes, content_type: str, status: int = 200, cookie: str = "", extra: dict = None):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
-        self.send_header("Referrer-Policy", "same-origin")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+        self.send_header("Content-Security-Policy", CSP)
+        if self.is_https():
+            self.send_header("Strict-Transport-Security", "max-age=15552000")
+        for key, value in (extra or {}).items():
+            self.send_header(key, value)
         if cookie:
             self.send_header("Set-Cookie", cookie)
         self.end_headers()
-        self.wfile.write(body)
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
-    def send_html(self, page: str, status: int = 200, cookie: str = ""):
-        self._send_body(page.encode("utf-8"), "text/html; charset=utf-8", status, cookie)
+    def send_html(self, body: str, status: int = 200, cookie: str = "", extra: dict = None):
+        self._send(body.encode("utf-8"), "text/html; charset=utf-8", status, cookie, extra)
 
-    def send_json(self, data: dict, status: int = 200):
-        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
-        self._send_body(body, "application/json; charset=utf-8", status)
+    def send_json(self, payload: dict, status: int = 200):
+        self._send(
+            json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"),
+            "application/json; charset=utf-8",
+            status,
+        )
 
-    # --------------------------------------------------------------------- HTTP
+    def redirect(self, path: str, cookie: str = ""):
+        self._send(b"", "text/html; charset=utf-8", 302, cookie, {"Location": path})
+
+    def read_form(self):
+        try:
+            length = int(self.headers.get("Content-Length", 0) or 0)
+        except ValueError:
+            return None
+        if length < 0 or length > settings.web_max_body_bytes:
+            return None
+        raw = self.rfile.read(length).decode("utf-8", errors="replace")
+        return urllib.parse.parse_qs(raw, keep_blank_values=True)
+
+    def page(self, title: str, content: str, active: str, status: int = 200, cookie: str = ""):
+        token = csrf_token_for(self.session())
+        self.send_html(render_shell(title, content, active, csrf=token), status, cookie)
+
+    def forbidden(self, reason: str):
+        body = pages.card_error("Request rejected", reason)
+        self.page("Forbidden", body, "dashboard", status=403)
+
+    # ------------------------------------------------------------------- state
+    def build_status(self) -> dict:
+        telegram = telegram_manager.status()
+        plugin_status = plugin_manager.status()
+        tasks = task_manager.snapshot()
+        counts = db.get_stats()
+        return {
+            "telegram": telegram,
+            "plugins": plugin_status,
+            "tasks": tasks,
+            "counts": counts,
+            "uptime": time.time() - PANEL_STARTED_AT,
+            "platform": settings.platform_name,
+            "panel_url": settings.display_url,
+            "session_backend": settings.session_backend,
+            "prefix": router.prefix,
+            "theme": all_prefs().get("theme", settings.theme),
+            "deployment_notes": settings.deployment_notes(),
+            "panel_password_set": settings.has_panel_credentials,
+        }
+
+    @staticmethod
+    def build_integrations() -> list:
+        from reze.ai.gateway import ai_gateway
+
+        ai = ai_gateway.status()
+        return [
+            ("Pillow (images and stickers)", images.available(), "pip install Pillow"),
+            ("FFmpeg (video and audio)", ffmpeg.available(), "system package or REZE_FFMPEG_PATH"),
+            (
+                "AI provider",
+                ai["configured"],
+                f"{ai['provider']}/{ai['model']}" if ai["configured"] else "set REZE_AI_* variables",
+            ),
+            (
+                "Background removal",
+                bool(settings.removebg_api_key),
+                "REZE_REMOVEBG_API_KEY",
+            ),
+            (
+                "Telegram session",
+                telegram_manager.status()["connected"],
+                "REZE_SESSION_STRING or interactive login",
+            ),
+        ]
+
+    def recent_errors(self) -> list:
+        return [
+            entry
+            for entry in LOG_BUFFER
+            if entry.get("level") in {"ERROR", "CRITICAL", "WARNING"}
+        ][-10:]
+
+    # ---------------------------------------------------------------------- GET
     def do_HEAD(self):
-        path = urllib.parse.urlparse(self.path).path
-        if path in HEALTH_PATHS:
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Content-Length", "0")
-            self.end_headers()
+        if urllib.parse.urlparse(self.path).path in HEALTH_PATHS:
+            self._send(b"", "application/json; charset=utf-8")
             return
-        self.send_response(404)
-        self.send_header("Content-Length", "0")
-        self.end_headers()
+        self._send(b"", "text/plain; charset=utf-8", 404)
 
     def do_GET(self):
         url = urllib.parse.urlparse(self.path)
         path = url.path
+        query = urllib.parse.parse_qs(url.query)
 
-        # Public, unauthenticated health endpoint used by Render/Railway/Koyeb.
         if path in HEALTH_PATHS:
             return self.handle_health()
-
         if path == "/favicon.ico":
-            self.send_response(204)
-            self.send_header("Content-Length", "0")
-            self.end_headers()
-            return
-
+            return self._send(b"", "image/x-icon", 204)
         if path == "/login":
             return self.handle_login_page()
 
-        if not self.is_authenticated():
+        session = self.session()
+        if session is None:
             return self.redirect("/login")
+        csrf = csrf_token_for(session)
 
         if path == "/":
-            return self.handle_dashboard()
-        elif path == "/profile":
-            return self.handle_profile()
-        elif path == "/groups":
-            return self.handle_groups()
-        elif path == "/security":
-            return self.handle_security()
-        elif path == "/filters":
-            return self.handle_filters()
-        elif path == "/logs":
-            return self.handle_logs()
-        elif path == "/settings":
-            return self.handle_settings()
-        elif path == "/logout":
-            token = self.get_auth_token()
+            return self.page("Dashboard", pages.dashboard(self.dashboard_state(), csrf), "dashboard")
+        if path == "/plugins":
+            return self.page("Plugins", pages.plugins({"plugins": plugin_manager.status()}, csrf), "plugins")
+        if path == "/tasks":
+            state = {"tasks": task_manager.snapshot(), "task_history": db.recent_tasks(limit=20)}
+            return self.page("Tasks", pages.tasks(state, csrf), "tasks")
+        if path == "/settings":
+            saved = "saved=1" in url.query
+            content = pages.settings_page(self.settings_state(), csrf)
+            if saved:
+                content = pages.banner("ok", "Settings saved.") + content
+            return self.page("Settings", content, "settings")
+        if path == "/logs":
+            level = (query.get("level", [""])[0] or "").upper()
+            state = {
+                "logs": list(LOG_BUFFER)[-300:],
+                "log_filter": level,
+            }
+            return self.page("Logs", pages.logs(state, csrf), "logs")
+        if path == "/productivity":
+            state = {
+                "notes": db.list_personal_notes(limit=50),
+                "archive": db.list_archive(limit=50),
+                "reminders": db.list_reminders(status="pending", limit=30),
+            }
+            return self.page("Archive", pages.productivity(state, csrf), "productivity")
+        if path == "/profile":
+            return self.page(
+                "Profile clock", pages.profile({"profile": db.get_profile_settings()}, csrf), "profile"
+            )
+        if path == "/groups":
+            return self.page(
+                "Groups", pages.groups({"groups": self.group_rows()}, csrf), "groups"
+            )
+        if path == "/filters":
+            with db.get_connection() as conn:
+                rows = [
+                    dict(row)
+                    for row in conn.execute(
+                        "SELECT chat_id, keyword, reply_text FROM filters ORDER BY id DESC LIMIT 100"
+                    ).fetchall()
+                ]
+            return self.page("Filters", pages.filters({"filters": rows}, csrf), "filters")
+        if path == "/security":
+            return self.page(
+                "Security", pages.security({"groups": self.group_rows()}, csrf), "security"
+            )
+        if path == "/automations":
+            rules = [rule.to_dict() for rule in automation_engine.rules()]
+            return self.page(
+                "Automations", pages.automations({"rules": rules}, csrf), "automations"
+            )
+        if path == "/api/status":
+            status = self.build_status()
+            return self.send_json(
+                {
+                    "version": __version__,
+                    "uptime": round(status["uptime"], 2),
+                    "telegram": status["telegram"],
+                    "plugins": {
+                        "loaded": status["plugins"]["loaded"],
+                        "failed": status["plugins"]["failed"],
+                    },
+                    "tasks": {
+                        "active": len(status["tasks"]["active"]),
+                        "queued": len(status["tasks"]["queued"]),
+                    },
+                    "counts": status["counts"],
+                }
+            )
+        if path == "/logout":
+            token = self.auth_token()
             destroy_session(token)
-            cookie = "reze_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"
-            if self.request_is_https():
-                cookie += "; Secure"
-            return self.redirect("/login", cookie)
-        elif path == "/api/stats":
-            stats = db.get_stats()
-            stats["total_executed"] = router.total_executed
-            stats["telegram"] = telegram_manager.status()
-            return self.send_json(stats)
-        else:
-            self.send_html("<h1>404 Not Found</h1>", 404)
+            return self.redirect("/login", self.session_cookie("", max_age=0))
 
+        return self.page("Not found", pages.card_error("404", "Page not found."), "dashboard", 404)
+
+    def group_rows(self) -> list:
+        with db.get_connection() as conn:
+            return [
+                dict(row)
+                for row in conn.execute(
+                    "SELECT * FROM group_settings ORDER BY chat_id LIMIT 200"
+                ).fetchall()
+            ]
+
+    def dashboard_state(self) -> dict:
+        return {
+            "status": self.build_status(),
+            "integrations": self.build_integrations(),
+            "recent_errors": self.recent_errors(),
+        }
+
+    def settings_state(self) -> dict:
+        from reze.ai.gateway import ai_gateway
+
+        return {
+            "prefs": all_prefs(),
+            "themes": sorted(THEMES),
+            "limits": {
+                "concurrency": settings.task_concurrency,
+                "queue": settings.task_queue_limit,
+                "timeout": settings.task_timeout_seconds,
+                "automation": settings.automation_enabled,
+            },
+            "ai": ai_gateway.status(),
+        }
+
+    # --------------------------------------------------------------------- POST
     def do_POST(self):
-        url = urllib.parse.urlparse(self.path)
-        path = url.path
-
-        try:
-            content_length = int(self.headers.get("Content-Length", 0) or 0)
-        except ValueError:
-            content_length = 0
-        post_data = self.rfile.read(content_length).decode("utf-8", errors="replace")
-        form = urllib.parse.parse_qs(post_data)
+        path = urllib.parse.urlparse(self.path).path
+        form = self.read_form()
+        if form is None:
+            return self.send_html(
+                render_shell("Rejected", pages.card_error("Request too large", "The body exceeded the limit."), "dashboard"),
+                status=413,
+            )
 
         if path == "/login":
             return self.handle_login_post(form)
 
-        if not self.is_authenticated():
+        session = self.session()
+        if session is None:
             return self.redirect("/login")
 
+        csrf = form.get("csrf_token", [""])[0]
+        if not validate_csrf(session, csrf):
+            logger.warning("Rejected a POST without a valid CSRF token for %s", path)
+            return self.forbidden("The CSRF token is missing or invalid. Reload the page and retry.")
+
+        if path == "/logout":
+            destroy_session(self.auth_token())
+            return self.redirect("/login", self.session_cookie("", max_age=0))
+        if path == "/settings/save":
+            return self.handle_settings_save(form, session)
+        if path == "/plugins/toggle":
+            return self.handle_plugin_toggle(form)
+        if path == "/tasks/cancel":
+            return self.handle_task_cancel(form)
         if path == "/profile/save":
-            name_on = 1 if "name_clock_enabled" in form else 0
-            bio_on = 1 if "bio_clock_enabled" in form else 0
-            tz = form.get("timezone", ["Asia/Tehran"])[0]
-            fmt = form.get("clock_format", ["%H:%M"])[0]
-            db.update_profile_settings(
-                name_clock_enabled=name_on,
-                bio_clock_enabled=bio_on,
-                timezone=tz,
-                clock_format=fmt,
-            )
-            return self.redirect("/profile")
-        elif path == "/filters/add":
-            try:
-                chat_id = int(form.get("chat_id", [0])[0])
-            except ValueError:
-                chat_id = 0
-            kw = form.get("keyword", [""])[0]
-            reply_text = form.get("reply_text", [""])[0]
-            if chat_id and kw and reply_text:
-                db.set_filter(chat_id, kw, reply_text)
-            return self.redirect("/filters")
+            return self.handle_profile_save(form)
+        if path == "/productivity/delete":
+            return self.handle_productivity_delete(form)
+        if path == "/automations/create":
+            return self.handle_automation_create(form)
+        if path == "/automations/toggle":
+            return self.handle_automation_toggle(form)
+        if path == "/automations/delete":
+            return self.redirect(self.handle_automation_delete(form))
 
-        self.redirect("/")
-
-    # ------------------------------------------------------------------- health
-    def handle_health(self):
-        telegram = telegram_manager.status()
-        payload = {
-            "status": "ok",
-            "service": "reze-userbot",
-            "version": __version__,
-            "author": __author__,
-            "channel": __channel__,
-            "platform": settings.platform_name,
-            "hosted": settings.is_hosted,
-            "uptime_seconds": int(time.time() - PANEL_STARTED_AT),
-            "telegram": telegram,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-        self.send_json(payload)
+        return self.page("Not found", pages.card_error("404", "Page not found."), "dashboard", 404)
 
     # --------------------------------------------------------------------- auth
     def handle_login_page(self, error: str = ""):
-        credentials_configured = settings.has_panel_credentials
-        insecure_allowed = settings.allow_insecure_default_login
-
-        if not credentials_configured and not insecure_allowed:
-            setup_html = """
-            <div class="setup">
-                <p style="color:#fbbf24; margin-bottom: 0.8rem;">⚠️ ورود به پنل غیرفعال است، چون رمز عبور تنظیم نشده.</p>
-                <p>متغیر محیطی زیر را اضافه کنید و سرویس را ری‌استارت کنید:</p>
-                <p><code>REZE_PANEL_PASSWORD=یک-رمز-قوی</code></p>
-                <p style="margin-top: 0.8rem;">یا هش امن بسازید و مقدار زیر را تنظیم کنید:</p>
-                <p><code>REZE_PANEL_PASSWORD_HASH=...</code></p>
-                <p style="margin-top: 0.8rem;">راهنما: <code>python scripts/generate_hash.py</code></p>
-                <p style="margin-top: 0.8rem;">برای سلامت سرویس: <a href="/healthz">/healthz</a></p>
-            </div>
-            """
-            return self.send_html(render_login_page(setup_html=setup_html))
-
-        hint = ""
-        if not credentials_configured:
-            hint = (
-                "حالت توسعه: نام کاربری admin و رمز admin فعال است. "
-                "برای امنیت، REZE_PANEL_PASSWORD را تنظیم کنید."
+        if not settings.has_panel_credentials and not settings.allow_insecure_default_login:
+            setup = (
+                "<strong>Login is disabled.</strong> Set <code>REZE_PANEL_PASSWORD</code> or "
+                "<code>REZE_PANEL_PASSWORD_HASH</code> and restart the service."
             )
-            return self.send_html(render_login_page(error=hint))
-        return self.send_html(render_login_page(error=error))
+            return self.send_html(render_login(setup=setup))
+        return self.send_html(render_login(error=error))
 
     def handle_login_post(self, form: dict):
         username = form.get("username", [""])[0]
         password = form.get("password", [""])[0]
-        client_ip = self.get_client_ip()
+        ip = self.client_ip()
 
-        credentials_configured = settings.has_panel_credentials
-        insecure_allowed = settings.allow_insecure_default_login
-
-        if not credentials_configured and not insecure_allowed:
+        if not settings.has_panel_credentials and not settings.allow_insecure_default_login:
             return self.handle_login_page()
 
-        if not check_rate_limit(client_ip):
-            return self.handle_login_page(
-                "تعداد تلاش‌های ناموفق بیش از حد مجاز. ۵ دقیقه صبر کنید."
-            )
+        if not check_rate_limit(ip):
+            return self.handle_login_page("Too many failed attempts. Wait five minutes and try again.")
 
         expected_username = settings.panel_username or "admin"
-        is_valid_user = hmac.compare_digest(
-            username.encode("utf-8"), expected_username.encode("utf-8")
-        )
+        valid_user = _constant_time_equals(username, expected_username)
 
         if settings.panel_password_hash:
-            is_valid_pass = verify_password(password, settings.panel_password_hash)
+            valid_password = verify_password(password, settings.panel_password_hash)
         elif settings.panel_password:
-            is_valid_pass = hmac.compare_digest(
-                password.encode("utf-8"), settings.panel_password.encode("utf-8")
-            )
+            valid_password = _constant_time_equals(password, settings.panel_password)
         else:
-            # Only reachable when REZE_ALLOW_INSECURE_DEFAULT_LOGIN=true.
-            is_valid_pass = password == "admin"
+            valid_password = _constant_time_equals(password, "admin")
 
-        if is_valid_user and is_valid_pass:
-            token = create_session(username)
-            logger.info("Successful login to Web Panel by %s from %s", username, client_ip)
+        if valid_user and valid_password:
+            reset_rate_limit(ip)
+            token = create_session(expected_username)
+            logger.info("Successful panel login by %s from %s", expected_username, ip)
             return self.redirect("/", self.session_cookie(token))
 
-        record_failed_login(client_ip)
-        logger.warning("Failed login attempt to Web Panel from IP %s", client_ip)
-        return self.handle_login_page("نام کاربری یا رمز عبور اشتباه است.")
+        record_failed_login(ip)
+        return self.handle_login_page("Invalid username or password.")
 
-    # ---------------------------------------------------------------- dashboard
-    def handle_dashboard(self):
-        stats = db.get_stats()
-        cfg = db.get_profile_settings()
+    # ----------------------------------------------------------------- handlers
+    def handle_settings_save(self, form: dict, session: dict):
+        errors = []
+        for key in PREFERENCE_KEYS:
+            if key not in form:
+                continue
+            value = form.get(key, [""])[0]
+            if key == "compact":
+                value = "1" if value else "0"
+            try:
+                set_pref(key, value)
+            except (KeyError, ValueError) as exc:
+                errors.append(f"{key}: {exc}")
+        if errors:
+            content = pages.banner("bad", "Some settings were rejected.", errors) + pages.settings_page(
+                self.settings_state(), csrf_token_for(session)
+            )
+            return self.page("Settings", content, "settings", status=400)
+        router.prefix = all_prefs().get("prefix", router.prefix)
+        return self.redirect("/settings?saved=1")
+
+    def handle_plugin_toggle(self, form: dict):
+        name = form.get("name", [""])[0]
+        action = form.get("action", [""])[0]
+        try:
+            if action == "enable":
+                plugin_manager.enable(name)
+            elif action == "disable":
+                plugin_manager.disable(name)
+            else:
+                raise ValueError("Unknown action")
+        except Exception as exc:  # noqa: BLE001 - surfaced on the plugins page
+            logger.warning("Plugin toggle failed for %s: %s", name, exc)
+        return self.redirect("/plugins")
+
+    def handle_task_cancel(self, form: dict):
+        task_id = form.get("task_id", [""])[0]
+        try:
+            run_coroutine(task_manager.cancel(task_id), timeout=10)
+        except Exception as exc:  # noqa: BLE001 - loop missing or unknown task
+            logger.warning("Task cancel failed for %s: %s", task_id, exc)
+        return self.redirect("/tasks")
+
+    def handle_profile_save(self, form: dict):
+        name_on = 1 if form.get("name_clock_enabled") else 0
+        bio_on = 1 if form.get("bio_clock_enabled") else 0
+        timezone = form.get("timezone", ["UTC"])[0][:64]
+        clock_format = form.get("clock_format", ["%H:%M"])[0][:20]
+        db.update_profile_settings(
+            name_clock_enabled=name_on,
+            bio_clock_enabled=bio_on,
+            timezone=timezone,
+            clock_format=clock_format,
+        )
+        return self.redirect("/profile")
+
+    def handle_productivity_delete(self, form: dict):
+        kind = form.get("kind", [""])[0]
+        key = form.get("key", [""])[0]
+        if kind == "note":
+            db.delete_personal_note(key)
+        elif kind == "archive" and key.isdigit():
+            db.delete_archive(int(key))
+        elif kind == "reminder" and key.isdigit():
+            db.cancel_reminder(int(key))
+        return self.redirect("/productivity")
+
+    def handle_automation_create(self, form: dict):
+        trigger_type = form.get("trigger_type", ["schedule"])[0]
+        action_type = form.get("action_type", ["notify"])[0]
+        name = form.get("name", [""])[0]
+        try:
+            cooldown = int(form.get("cooldown", ["60"])[0] or 60)
+        except ValueError:
+            cooldown = 60
+
+        if trigger_type == "schedule":
+            trigger_config = {"at": form.get("at", [""])[0].strip()}
+        elif trigger_type == "interval":
+            try:
+                trigger_config = {"minutes": int(form.get("minutes", ["60"])[0] or 60)}
+            except ValueError:
+                trigger_config = {"minutes": 0}
+        elif trigger_type == "keyword":
+            trigger_config = {"text": form.get("keyword", [""])[0].strip()}
+        else:
+            trigger_config = {}
+
+        action = {"type": action_type}
+        text = form.get("action_text", [""])[0].strip()
+        if text:
+            action["text"] = text
+
+        try:
+            automation_engine.create(
+                name=name,
+                trigger_type=trigger_type,
+                trigger_config=trigger_config,
+                actions=[action],
+                cooldown=cooldown,
+                created_by=int(settings.owner_id or 0),
+            )
+        except AutomationError as exc:
+            session = self.session()
+            content = pages.banner("bad", "Rule rejected", [str(exc)]) + pages.automations(
+                {"rules": [rule.to_dict() for rule in automation_engine.rules()]},
+                csrf_token_for(session) if session else "",
+            )
+            return self.page("Automations", content, "automations", status=400)
+        return self.redirect("/automations")
+
+    def handle_automation_toggle(self, form: dict):
+        name = form.get("name", [""])[0]
+        action = form.get("action", [""])[0]
+        try:
+            if action == "enable":
+                automation_engine.enable(name)
+            else:
+                automation_engine.disable(name)
+        except AutomationError as exc:
+            logger.warning("Automation toggle failed: %s", exc)
+        return self.redirect("/automations")
+
+    def handle_automation_delete(self, form: dict):
+        automation_engine.delete(form.get("name", [""])[0])
+        return "/automations"
+
+    # ------------------------------------------------------------------- health
+    def handle_health(self):
         telegram = telegram_manager.status()
-        connected = telegram["connected"]
-        status_pill = (
-            '<span class="pill ok">متصل</span>'
-            if connected
-            else '<span class="pill bad">قطع / نیازمند ورود</span>'
+        self.send_json(
+            {
+                "status": "ok",
+                "service": "reze-userbot",
+                "version": __version__,
+                "uptime_seconds": int(time.time() - PANEL_STARTED_AT),
+                "telegram_connected": bool(telegram["connected"]),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
         )
 
-        alerts = []
-        if not telegram["configured"]:
-            alerts.append(
-                '<div class="alert alert-danger">'
-                "🔑 <strong>اتصال تلگرام پیکربندی نشده است.</strong><br>"
-                "مقادیر <code>REZE_API_ID</code>، <code>REZE_API_HASH</code> و "
-                "<code>REZE_OWNER_ID</code> را در متغیرهای محیطی تنظیم کنید."
-                "</div>"
-            )
-        elif not connected:
-            alerts.append(
-                '<div class="alert alert-warn">'
-                "🔐 <strong>تلگرام متصل نیست.</strong><br>"
-                "روی سرویس‌های ابری با فایل‌سیستم موقت، از "
-                "<code>REZE_SESSION_STRING</code> استفاده کنید. ساخت سشن: "
-                "<code>python scripts/generate_session.py</code>"
-                "</div>"
-            )
 
-        if settings.is_hosted and settings.session_backend == "file":
-            alerts.append(
-                '<div class="alert alert-info">'
-                "💾 در حال اجرا روی سرویس ابری با سشن فایلی هستید. برای جلوگیری از "
-                "خروج از حساب پس از هر ری‌استارت، یک دیسک/ولوم دائمی متصل کنید یا "
-                "<code>REZE_SESSION_STRING</code> را تنظیم کنید."
-                "</div>"
-            )
+def _constant_time_equals(left: str, right: str) -> bool:
+    import hmac
 
-        if not settings.has_panel_credentials:
-            alerts.append(
-                '<div class="alert alert-danger">'
-                "🔒 رمز پنل تنظیم نشده و ورود غیرفعال است. "
-                "<code>REZE_PANEL_PASSWORD</code> را تنظیم کنید."
-                "</div>"
-            )
-
-        alerts_html = "".join(alerts)
-
-        content = f"""
-        <h2>داشبورد نظارت و آمار کلی</h2>
-        {alerts_html}
-        <div class="grid">
-            <div class="stat-box">
-                <div class="stat-label">دستورات اجراشده</div>
-                <div class="stat-val">{router.total_executed}</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">گروه‌های فعال</div>
-                <div class="stat-val">{stats.get('groups', 0)}</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">ساعت نام و بیو</div>
-                <div class="stat-val">{'فعال ✅' if cfg.get('name_clock_enabled') else 'خاموش ⏸️'}</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">خطاهای ثبت‌شده</div>
-                <div class="stat-val">{router.errors_count}</div>
-            </div>
-        </div>
-        <div class="card">
-            <h3>وضعیت اتصال سرویس MTProto</h3>
-            <p style="margin-top: 0.5rem; line-height: 2;">
-                وضعیت: {status_pill}<br>
-                بک‌اند سشن: <code>{_esc(settings.session_backend)}</code> |
-                پلتفرم: <code>{_esc(settings.platform_name)}</code><br>
-                پیشوند فعال: <code>{_esc(router.prefix)}</code> |
-                منطقه زمانی: <code>{_esc(settings.timezone)}</code><br>
-                شناسه مالک: <code>{_esc(settings.owner_id)}</code>
-            </p>
-        </div>
-        <div class="card">
-            <h3>دسترسی سریع</h3>
-            <p class="muted" style="line-height: 2;">
-                پنل: <code>{_esc(settings.display_url)}</code><br>
-                سلامت سرویس: <a style="color: var(--accent-cyan);" href="/healthz">/healthz</a><br>
-                راهنمای دیپلوی: <code>DEPLOY.md</code>
-            </p>
-        </div>
-        """
-        self.send_html(render_template("داشبورد", content, "dashboard"))
-
-    # ------------------------------------------------------------------ profile
-    def handle_profile(self):
-        cfg = db.get_profile_settings()
-        content = f"""
-        <h2>تنظیمات ساعت نام و بیوگرافی</h2>
-        <div class="card">
-            <form method="POST" action="/profile/save">
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" name="name_clock_enabled" value="1" {'checked' if cfg.get('name_clock_enabled') else ''}>
-                        فعال‌سازی نمایش ساعت در نام کاربری
-                    </label>
-                </div>
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" name="bio_clock_enabled" value="1" {'checked' if cfg.get('bio_clock_enabled') else ''}>
-                        فعال‌سازی نمایش ساعت در بیوگرافی (Bio)
-                    </label>
-                </div>
-                <div class="form-group">
-                    <label>منطقه زمانی (IANA Timezone):</label>
-                    <input type="text" name="timezone" value="{_esc(cfg.get('timezone', 'Asia/Tehran'))}">
-                </div>
-                <div class="form-group">
-                    <label>فرمت نمایش زمان (strftime):</label>
-                    <input type="text" name="clock_format" value="{_esc(cfg.get('clock_format', '%H:%M'))}">
-                </div>
-                <button type="submit" class="btn">ذخیره تغییرات ساعت</button>
-            </form>
-        </div>
-        """
-        self.send_html(render_template("ساعت پروفایل", content, "profile"))
-
-    # ------------------------------------------------------------------- groups
-    def handle_groups(self):
-        content = """
-        <h2>مدیریت گروه‌ها و سوپرگروه‌ها</h2>
-        <div class="card">
-            <p style="color: var(--text-muted);">فهرست گروه‌های پیکربندی‌شده در دیتابیس Reze:</p>
-            <table>
-                <thead>
-                    <tr>
-                        <th>شناسه گروه</th>
-                        <th>نام گروه</th>
-                        <th>وضعیت AntiFlood</th>
-                        <th>وضعیت AntiLink</th>
-                        <th>پیام خوشامد</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td colspan="5" style="text-align: center; color: var(--text-muted);">گروهی به صورت محلی ثبت نشده است. دستورات را در گروه اجرا کنید تا خودکار ثبت شوند.</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-        """
-        self.send_html(render_template("گروه‌ها", content, "groups"))
-
-    # ----------------------------------------------------------------- security
-    def handle_security(self):
-        content = """
-        <h2>تنظیمات امنیت، AntiFlood و AntiRaid</h2>
-        <div class="card">
-            <h3>تنظیمات ضداسپم گروهی</h3>
-            <p style="color: var(--text-muted); margin-top: 0.5rem; line-height: 2;">
-                سیستم AntiFlood با ثبت نرخ ارسال پیام هر کاربر از اسپم ممانعت به عمل می‌آورد.
-                همچنین مکانیزم AntiRaid ورودهای همزمان را بلافاصله مسدود می‌کند.
-            </p>
-        </div>
-        """
-        self.send_html(render_template("امنیت", content, "antiflood"))
-
-    # ------------------------------------------------------------------ filters
-    def handle_filters(self):
-        content = """
-        <h2>فیلترها و پاسخ‌های خودکار</h2>
-        <div class="card">
-            <h3>افزودن فیلتر جدید</h3>
-            <form method="POST" action="/filters/add">
-                <div class="form-group">
-                    <label>شناسه چت یا گروه:</label>
-                    <input type="number" name="chat_id" placeholder="-100123456789" required>
-                </div>
-                <div class="form-group">
-                    <label>کلمه کلیدی:</label>
-                    <input type="text" name="keyword" placeholder="سلام" required>
-                </div>
-                <div class="form-group">
-                    <label>متن پاسخ:</label>
-                    <input type="text" name="reply_text" placeholder="درود، به گروه خوش آمدید!" required>
-                </div>
-                <button type="submit" class="btn">ثبت فیلتر</button>
-            </form>
-        </div>
-        """
-        self.send_html(render_template("فیلترها", content, "filters"))
-
-    # --------------------------------------------------------------------- logs
-    def handle_logs(self):
-        logs_html = "".join(
-            [
-                f"<div>[{_esc(item.get('level'))}] {_esc(item.get('message'))}</div>"
-                for item in LOG_BUFFER
-            ]
-        ) or "در انتظار ثبت لاگ جدید..."
-        content = f"""
-        <h2>لاگ‌های سیستم (زنده)</h2>
-        <div class="card">
-            <div class="log-stream">{logs_html}</div>
-        </div>
-        """
-        self.send_html(render_template("لاگ‌ها", content, "logs"))
-
-    # ----------------------------------------------------------------- settings
-    def handle_settings(self):
-        public_url = settings.display_url
-        credentials_state = "تنظیم شده ✅" if settings.has_panel_credentials else "تنظیم نشده ⚠️"
-        content = f"""
-        <h2>تنظیمات محیطی و سیستمی</h2>
-        <div class="card">
-            <h3>سازنده و پشتیبانی</h3>
-            <p style="line-height: 2.1;">
-                👤 سازنده: <strong>{__author__}</strong><br>
-                📣 کانال رسمی: <a style="color: var(--accent-cyan);" href="{__channel_url__}" target="_blank" rel="noopener">{__channel__}</a><br>
-                🏷️ نسخه: <code>{__version__}</code>
-            </p>
-        </div>
-        <div class="card">
-            <h3>وضعیت استقرار</h3>
-            <table>
-                <tbody>
-                    <tr><th>پلتفرم</th><td><code>{_esc(settings.platform_name)}</code></td></tr>
-                    <tr><th>حالت ابری (PaaS)</th><td>{'بله' if settings.is_hosted else 'خیر'}</td></tr>
-                    <tr><th>آدرس عمومی پنل</th><td><code>{_esc(public_url)}</code></td></tr>
-                    <tr><th>آدرس سلامت سرویس</th><td><a style="color: var(--accent-cyan);" href="/healthz">/healthz</a></td></tr>
-                    <tr><th>تنظیم رمز پنل</th><td>{credentials_state}</td></tr>
-                    <tr><th>بک‌اند سشن تلگرام</th><td><code>{_esc(settings.session_backend)}</code></td></tr>
-                </tbody>
-            </table>
-        </div>
-        <div class="card">
-            <h3>تنظیمات فعال</h3>
-            <p style="line-height: 2.1;">
-                <strong>شناسه مالک:</strong> <code>{_esc(settings.owner_id)}</code><br>
-                <strong>منطقه زمانی پیش‌فرض:</strong> <code>{_esc(settings.timezone)}</code><br>
-                <strong>پورت وب پنل:</strong> <code>{_esc(settings.web_port)}</code><br>
-                <strong>میزبان اتصال:</strong> <code>{_esc(settings.effective_web_host)}</code><br>
-                <strong>پوشه داده:</strong> <code>{_esc(settings.data_dir)}</code><br>
-                <strong>مسیر دیتابیس:</strong> <code>{_esc(db.db_path)}</code>
-            </p>
-        </div>
-        <div class="card">
-            <h3>چک‌لیست متغیرهای محیطی</h3>
-            <table>
-                <thead><tr><th>متغیر</th><th>وضعیت</th></tr></thead>
-                <tbody>
-                    <tr><td><code>REZE_API_ID</code> / <code>REZE_API_HASH</code></td><td>{'✅' if settings.api_id and settings.api_hash else '❌'}</td></tr>
-                    <tr><td><code>REZE_OWNER_ID</code></td><td>{'✅' if settings.owner_id else '❌'}</td></tr>
-                    <tr><td><code>REZE_SESSION_STRING</code></td><td>{'✅' if settings.session_string else '➖ (فایل سشن)'}</td></tr>
-                    <tr><td><code>REZE_PANEL_PASSWORD</code> یا <code>REZE_PANEL_PASSWORD_HASH</code></td><td>{'✅' if settings.has_panel_credentials else '❌'}</td></tr>
-                </tbody>
-            </table>
-        </div>
-        """
-        self.send_html(render_template("تنظیمات", content, "settings"))
+    return hmac.compare_digest((left or "").encode("utf-8"), (right or "").encode("utf-8"))
 
 
 _httpd = None
 
 
 def run_web_server(host: str = None, port: int = None):
-    """Bind the panel to the platform port and serve forever."""
+    """Bind the panel and serve until stopped."""
     global _httpd
-
     bind_host = host or settings.effective_web_host
-    bind_port = int(port or settings.web_port)
+    bind_port = int(port if port is not None else settings.web_port)
 
     try:
         httpd = ThreadingHTTPServer((bind_host, bind_port), RezePanelHandler)
     except OSError as exc:
-        logger.error(
-            "Could not bind the web panel to %s:%d - %s", bind_host, bind_port, exc
-        )
+        logger.error("Could not bind the web panel to %s:%d - %s", bind_host, bind_port, exc)
         return None
 
     httpd.daemon_threads = True
     _httpd = httpd
     logger.info(
-        "Reze Web Panel listening on http://%s:%d (health endpoint: %s)",
+        "Reze Web Panel listening on http://%s:%d (health: %s)",
         bind_host,
         bind_port,
         settings.healthcheck_path,
     )
-    if bind_host == "0.0.0.0" and not settings.has_panel_credentials:
+    if bind_host not in ("127.0.0.1", "localhost", "::1") and not settings.has_panel_credentials:
         logger.warning(
-            "The web panel is exposed on 0.0.0.0 without a configured password. "
-            "Set REZE_PANEL_PASSWORD before exposing it publicly."
+            "The panel is exposed on %s without a configured password. "
+            "Set REZE_PANEL_PASSWORD before exposing it publicly.",
+            bind_host,
         )
-
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
@@ -763,7 +609,7 @@ def run_web_server(host: str = None, port: int = None):
 
 
 def stop_web_server():
-    """Stop the panel from another thread (used on SIGTERM/shutdown)."""
+    """Stop the panel from another thread (shutdown path)."""
     global _httpd
     if _httpd is not None:
         try:

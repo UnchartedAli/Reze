@@ -1,131 +1,143 @@
 """
-Moderation Commands for Reze Userbot.
-Warnings, Rules, Greetings, Notes, Filters, Blacklists.
+Moderation commands: warnings, rules, greetings, notes, filters and blacklists.
 """
 
-from reze.command_router import router, CommandContext
+from reze.command_router import CommandContext, router
 from reze.database import db
+from reze.ui import ascii
 
-@router.register(name="warn", category="Moderation", description="ثبت اخطار برای کاربر در گروه", admin_only=True, group_only=True)
+CATEGORY = "Moderation"
+
+
+@router.register(name="warn", category=CATEGORY, description="Warn a member and count it toward the limit.", usage=".warn [reason] (reply or id)", admin_only=True, group_only=True)
 async def warn_cmd(ctx: CommandContext):
     target_id = await ctx.get_target_user_id()
     if not target_id:
-        return await ctx.reply("⚠️ کاربر هدف را مشخص کنید.")
-    reason = " ".join(ctx.args[1:]) if len(ctx.args) > 1 else "بدون دلیل"
+        return await ctx.reply(ascii.warning("No target", ["Reply to a member or pass their numeric id."]))
+    reason = ctx.args_text.strip() or "no reason given"
     count = db.add_warning(ctx.chat_id, target_id, ctx.sender_id, reason)
-    
-    reply_msg = f"⚠️ کاربر `{target_id}` اخطار دریافت کرد!\nتعداد اخطارها: `{count}/3`\nعلت: {reason}"
+    lines = [f"User: {target_id}", f"Warnings: {count}/3", f"Reason: {reason}"]
     if count >= 3:
-        reply_msg += "\n🚨 کاربر به سقف اخطار رسید و باید محدود/اخراج شود."
-    return await ctx.reply(reply_msg)
+        lines.append("The warning limit was reached; consider muting or banning.")
+    return await ctx.reply(ascii.warning("Warning issued", lines))
 
 
-@router.register(name="unwarn", category="Moderation", description="کاهش یک اخطار از کاربر", admin_only=True, group_only=True)
+@router.register(name="unwarn", category=CATEGORY, description="Remove one warning from a member.", usage=".unwarn (reply or id)", admin_only=True, group_only=True)
 async def unwarn_cmd(ctx: CommandContext):
     target_id = await ctx.get_target_user_id()
     if not target_id:
-        return await ctx.reply("⚠️ کاربر هدف را مشخص کنید.")
+        return await ctx.reply(ascii.warning("No target", ["Reply to a member or pass their numeric id."]))
     count = db.remove_warning(ctx.chat_id, target_id)
-    return await ctx.reply(f"✅ یک اخطار از کاربر `{target_id}` کسر شد. (اخطارهای باقی‌مانده: `{count}`)")
+    return await ctx.reply(ascii.info("Warning removed", [f"User: {target_id}", f"Remaining: {count}"]))
 
 
-@router.register(name="warns", category="Moderation", description="مشاهده تعداد اخطارهای کاربر", group_only=True)
+@router.register(name="warns", category=CATEGORY, description="Show a member's warning count.", usage=".warns (reply or id)", group_only=True)
 async def warns_cmd(ctx: CommandContext):
     target_id = await ctx.get_target_user_id() or ctx.sender_id
     count = db.get_warnings_count(ctx.chat_id, target_id)
-    return await ctx.reply(f"ℹ️ کاربر `{target_id}` دارای `{count}` اخطار فعال است.")
+    return await ctx.reply(ascii.info("Warnings", [f"User: {target_id}", f"Active warnings: {count}"]))
 
 
-@router.register(name="resetwarns", category="Moderation", description="پاک‌کردن تمام اخطارهای یک کاربر", admin_only=True, group_only=True)
+@router.register(name="resetwarns", category=CATEGORY, description="Clear every warning for a member.", usage=".resetwarns (reply or id)", admin_only=True, group_only=True)
 async def resetwarns_cmd(ctx: CommandContext):
     target_id = await ctx.get_target_user_id()
     if not target_id:
-        return await ctx.reply("⚠️ کاربر هدف را مشخص کنید.")
+        return await ctx.reply(ascii.warning("No target", ["Reply to a member or pass their numeric id."]))
     db.reset_warnings(ctx.chat_id, target_id)
-    return await ctx.reply(f"🔄 تمام اخطارهای کاربر `{target_id}` پاک شدند.")
+    return await ctx.reply(ascii.success("Warnings cleared", [f"User: {target_id}"]))
 
 
-@router.register(name="rules", category="Moderation", description="مشاهده قوانین گروه", group_only=True)
+@router.register(name="rules", category=CATEGORY, description="Show the group rules.", usage=".rules", group_only=True)
 async def rules_cmd(ctx: CommandContext):
-    cfg = db.get_group_settings(ctx.chat_id)
-    rules = cfg.get("rules") or "هنوز قانونی برای این گروه تنظیم نشده است."
-    return await ctx.reply(f"📜 **قوانین گروه:**\n\n{rules}")
+    config = db.get_group_settings(ctx.chat_id)
+    rules = config.get("rules") or "No rules have been configured for this group yet."
+    return await ctx.reply(ascii.frame("Group rules", [rules]))
 
 
-@router.register(name="setrules", category="Moderation", description="تنظیم قوانین گروه", admin_only=True, group_only=True)
+@router.register(name="setrules", category=CATEGORY, description="Set the group rules text.", usage=".setrules <text>", admin_only=True, group_only=True)
 async def setrules_cmd(ctx: CommandContext):
-    if not ctx.args:
-        return await ctx.reply("⚠️ متن قوانین را وارد کنید: `.setrules رعایت احترام الزامی است.`")
-    rules_text = " ".join(ctx.args)
-    db.update_group_settings(ctx.chat_id, rules=rules_text)
-    return await ctx.reply("✅ قوانین گروه با موفقیت به‌روزرسانی شد.")
+    if not ctx.args_text.strip():
+        return await ctx.reply_usage("Example: .setrules Be respectful and stay on topic.")
+    db.update_group_settings(ctx.chat_id, rules=ctx.args_text.strip())
+    return await ctx.reply(ascii.success("Rules updated"))
 
 
-@router.register(name="welcome", category="Moderation", description="فعال یا غیرفعال‌سازی پیام خوشامدگویی", admin_only=True, group_only=True)
+@router.register(name="welcome", category=CATEGORY, description="Enable or disable welcome messages.", usage=".welcome on|off", admin_only=True, group_only=True)
 async def welcome_cmd(ctx: CommandContext):
     if not ctx.args or ctx.args[0].lower() not in ("on", "off"):
-        return await ctx.reply("⚠️ روش استفاده: `.welcome on` یا `.welcome off`")
-    val = 1 if ctx.args[0].lower() == "on" else 0
-    db.update_group_settings(ctx.chat_id, welcome_enabled=val)
-    return await ctx.reply(f"✅ پیام خوشامدگویی {'فعال' if val else 'غیرفعال'} شد.")
+        return await ctx.reply_usage("Example: .welcome on")
+    enabled = 1 if ctx.args[0].lower() == "on" else 0
+    db.update_group_settings(ctx.chat_id, welcome_enabled=enabled)
+    return await ctx.reply(ascii.info("Welcome messages", ["enabled" if enabled else "disabled"]))
 
 
-@router.register(name="setwelcome", category="Moderation", description="تنظیم متن پیام خوشامدگویی", admin_only=True, group_only=True)
+@router.register(name="setwelcome", category=CATEGORY, description="Set the welcome message template.", usage=".setwelcome <text with {mention} and {title}>", admin_only=True, group_only=True)
 async def setwelcome_cmd(ctx: CommandContext):
-    if not ctx.args:
-        return await ctx.reply("⚠️ متن خوشامدگویی را وارد کنید. می‌توانید از {mention} و {title} استفاده کنید.")
-    text = " ".join(ctx.args)
-    db.update_group_settings(ctx.chat_id, welcome_text=text)
-    return await ctx.reply("✅ متن خوشامدگویی گروه ثبت شد.")
+    if not ctx.args_text.strip():
+        return await ctx.reply_usage("Example: .setwelcome Welcome {mention} to {title}!")
+    db.update_group_settings(ctx.chat_id, welcome_text=ctx.args_text.strip())
+    return await ctx.reply(ascii.success("Welcome template saved"))
 
 
-@router.register(name="goodbye", category="Moderation", description="فعال یا غیرفعال‌سازی پیام خداحافظی", admin_only=True, group_only=True)
+@router.register(name="goodbye", category=CATEGORY, description="Enable or disable goodbye messages.", usage=".goodbye on|off", admin_only=True, group_only=True)
 async def goodbye_cmd(ctx: CommandContext):
     if not ctx.args or ctx.args[0].lower() not in ("on", "off"):
-        return await ctx.reply("⚠️ روش استفاده: `.goodbye on` یا `.goodbye off`")
-    val = 1 if ctx.args[0].lower() == "on" else 0
-    db.update_group_settings(ctx.chat_id, goodbye_enabled=val)
-    return await ctx.reply(f"✅ پیام خداحافظی {'فعال' if val else 'غیرفعال'} شد.")
+        return await ctx.reply_usage("Example: .goodbye on")
+    enabled = 1 if ctx.args[0].lower() == "on" else 0
+    db.update_group_settings(ctx.chat_id, goodbye_enabled=enabled)
+    return await ctx.reply(ascii.info("Goodbye messages", ["enabled" if enabled else "disabled"]))
 
 
-@router.register(name="filter", category="Moderation", description="مدیریت پاسخ‌های خودکار (add, remove, list)", admin_only=True, group_only=True)
+@router.register(name="filter", category=CATEGORY, description="Manage automatic keyword replies.", usage=".filter add|remove|list ...", admin_only=True, group_only=True)
 async def filter_cmd(ctx: CommandContext):
     if not ctx.args:
-        return await ctx.reply("⚠️ روش استفاده:\n`.filter add <keyword> <reply>`\n`.filter remove <keyword>`\n`.filter list`")
+        return await ctx.reply_usage(".filter add <keyword> <reply> | .filter remove <keyword> | .filter list")
     action = ctx.args[0].lower()
+
     if action == "add" and len(ctx.args) >= 3:
-        kw = ctx.args[1]
-        reply_txt = " ".join(ctx.args[2:])
-        db.set_filter(ctx.chat_id, kw, reply_txt)
-        return await ctx.reply(f"✅ فیلتر برای کلمه `{kw}` ذخیره شد.")
-    elif action == "remove" and len(ctx.args) >= 2:
-        kw = ctx.args[1]
-        ok = db.remove_filter(ctx.chat_id, kw)
-        return await ctx.reply("✅ فیلتر حذف شد." if ok else "⚠️ چنین فیلتری یافت نشد.")
-    elif action == "list":
-        flist = db.get_filters(ctx.chat_id)
-        if not flist:
-            return await ctx.reply("📋 هیچ فیلتری در این گروه ثبت نشده است.")
-        return await ctx.reply("📋 **فیلترهای فعال:**\n" + "\n".join([f"• `{f['keyword']}` ➔ `{f['reply_text']}`" for f in flist]))
-    return await ctx.reply("⚠️ دستور نامعتبر. راهنما: `.filter list`")
+        keyword = ctx.args[1]
+        reply_text = " ".join(ctx.args[2:])
+        db.set_filter(ctx.chat_id, keyword, reply_text)
+        return await ctx.reply(ascii.success("Filter saved", [f"Keyword: {keyword}"]))
+
+    if action == "remove" and len(ctx.args) >= 2:
+        removed = db.remove_filter(ctx.chat_id, ctx.args[1])
+        return await ctx.reply(
+            ascii.info("Filters", ["Filter removed." if removed else "No such filter."])
+        )
+
+    if action == "list":
+        filters = db.get_filters(ctx.chat_id)
+        if not filters:
+            return await ctx.reply(ascii.info("Filters", ["No filters configured."]))
+        lines = [f"{entry['keyword']} -> {entry['reply_text']}" for entry in filters]
+        return await ctx.reply(ascii.section(f"Filters ({len(filters)})", lines))
+
+    return await ctx.reply_usage("Actions: add, remove, list")
 
 
-@router.register(name="blacklist", category="Moderation", description="مدیریت کلمات ممنوعه (add, remove, list)", admin_only=True, group_only=True)
+@router.register(name="blacklist", category=CATEGORY, description="Manage forbidden words.", usage=".blacklist add|remove|list ...", admin_only=True, group_only=True)
 async def blacklist_cmd(ctx: CommandContext):
     if not ctx.args:
-        return await ctx.reply("⚠️ روش استفاده:\n`.blacklist add <word>`\n`.blacklist remove <word>`\n`.blacklist list`")
+        return await ctx.reply_usage(".blacklist add <word> | .blacklist remove <word> | .blacklist list")
     action = ctx.args[0].lower()
+
     if action == "add" and len(ctx.args) >= 2:
-        word = ctx.args[1]
-        db.add_blacklist(ctx.chat_id, word)
-        return await ctx.reply(f"🚫 کلمه `{word}` به لیست سیاه گروه اضافه شد.")
-    elif action == "remove" and len(ctx.args) >= 2:
-        word = ctx.args[1]
-        ok = db.remove_blacklist(ctx.chat_id, word)
-        return await ctx.reply("✅ کلمه از لیست سیاه حذف شد." if ok else "⚠️ کلمه در لیست سیاه نبود.")
-    elif action == "list":
-        blist = db.get_blacklists(ctx.chat_id)
-        if not blist:
-            return await ctx.reply("📋 لیست سیاه گروه خالی است.")
-        return await ctx.reply("🚫 **کلمات ممنوعه:**\n" + ", ".join([f"`{b['trigger']}`" for b in blist]))
-    return await ctx.reply("⚠️ دستور نامعتبر.")
+        db.add_blacklist(ctx.chat_id, ctx.args[1])
+        return await ctx.reply(ascii.success("Word blocked", [ctx.args[1]]))
+
+    if action == "remove" and len(ctx.args) >= 2:
+        removed = db.remove_blacklist(ctx.chat_id, ctx.args[1])
+        return await ctx.reply(
+            ascii.info("Blacklist", ["Word removed." if removed else "The word was not blocked."])
+        )
+
+    if action == "list":
+        words = db.get_blacklists(ctx.chat_id)
+        if not words:
+            return await ctx.reply(ascii.info("Blacklist", ["The blacklist is empty."]))
+        return await ctx.reply(
+            ascii.section("Blocked words", [entry["trigger"] for entry in words])
+        )
+
+    return await ctx.reply_usage("Actions: add, remove, list")

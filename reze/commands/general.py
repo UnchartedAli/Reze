@@ -1,187 +1,288 @@
 """
-General Commands for Reze Userbot.
-.help, .ping, .alive, .credits, .info, .id, .stats, .uptime, .version, .settings, .logs, .webpanel, .shutdown, .restart
+General commands: help, identity, account info, stats, logs, process control.
 """
 
-import time
-import sys
 import os
-from datetime import datetime, timedelta
-from reze.command_router import router, CommandContext
+import sys
+import time
+from datetime import timedelta
+
 from reze import __author__, __channel__, __channel_url__, __version__
+from reze.command_router import CommandContext, router
 from reze.config import settings
 from reze.database import db
 from reze.logging_config import LOG_BUFFER
+from reze.telegram_client import telegram_manager
+from reze.ui import ascii
 
 START_TIME = time.time()
+
 
 @router.register(
     name="help",
     category="General",
-    description="نمایش راهنمای جامع دستورات یا راهنمای یک بخش خاص",
-    usage=".help [category]"
+    description="Show command help by category or for one command.",
+    usage=".help [category | command]",
+    cooldown=1,
+    examples=[".help", ".help media", ".help sticker"],
 )
 async def help_cmd(ctx: CommandContext):
-    target = ctx.args[0].lower() if ctx.args else None
-    
+    target = ctx.args[0].lower() if ctx.args else ""
+
     if target:
-        matching = [c for c in router.commands.values() if c.category.lower() == target]
-        if not matching:
-            return await ctx.reply(f"⚠️ دسته‌بندی `{target}` یافت نشد.\nدسته‌بندی‌های موجود: General, Profile, Admin, Moderation, Security, Privacy, Plugins")
-        
-        lines = [f"📖 **راهنمای دستورات بخش {target.title()}:**\n"]
-        for cmd in sorted(matching, key=lambda x: x.name):
-            lines.append(f"• `.{cmd.name}` — {cmd.description}")
-        return await ctx.reply("\n".join(lines))
-    
-    categories = {}
-    for cmd in router.commands.values():
-        categories.setdefault(cmd.category, []).append(cmd.name)
-    
-    lines = [
-        f"🌸 **راهنمای Reze Userbot** — ساخته‌شده توسط {__author__}\n",
-        f"نسخه: `{__version__}` | پیشوند: `{router.prefix}` | کانال: {__channel__}\n"
+        command = router.resolve(target)
+        if command is not None:
+            lines = [
+                f"Command: {router.prefix}{command.name}",
+                f"Category: {command.category}",
+                f"Usage: {command.usage}",
+                f"Description: {command.description}",
+            ]
+            if command.aliases:
+                lines.append("Aliases: " + ", ".join(router.prefix + alias for alias in command.aliases))
+            if command.examples:
+                lines.append("Examples:")
+                lines.extend(f"  {example}" for example in command.examples)
+            access = []
+            if command.owner_only:
+                access.append("owner only")
+            if command.admin_only:
+                access.append("group admins")
+            if command.group_only:
+                access.append("groups only")
+            if command.cooldown:
+                access.append(f"{command.cooldown}s cooldown")
+            if access:
+                lines.append("Restrictions: " + ", ".join(access))
+            return await ctx.reply(ascii.frame("Command help", lines))
+
+        for category, commands in router.categories().items():
+            if category.lower() == target:
+                lines = [f"{command.usage}  -  {command.description}" for command in commands]
+                return await ctx.reply(ascii.section(f"{category} commands", lines))
+
+    categories = router.categories()
+    summary = [
+        f"{name}: {len(commands)} commands"
+        for name, commands in categories.items()
     ]
-    for cat, cmds in sorted(categories.items()):
-        lines.append(f"🔹 **{cat}** ({len(cmds)} دستور):")
-        lines.append(", ".join([f"`{c}`" for c in sorted(cmds)]))
-        lines.append("")
-    lines.append("💡 برای جزئیات هر بخش: `.help <category>`")
-    return await ctx.reply("\n".join(lines))
-
-
-@router.register(name="ping", category="General", description="بررسی زمان پاسخ‌دهی و تاخیر سرویس")
-async def ping_cmd(ctx: CommandContext):
-    start = time.time()
-    latency = round((time.time() - start) * 1000, 2)
-    return await ctx.reply(f"🏓 **Pong!**\n⏱️ تاخیر پردازش: `{latency}ms`")
-
-
-@router.register(name="alive", category="General", description="بررسی زنده بودن و وضعیت کلی یوزربات")
-async def alive_cmd(ctx: CommandContext):
-    uptime_sec = int(time.time() - START_TIME)
-    uptime_str = str(timedelta(seconds=uptime_sec))
+    body = [
+        f"Version: {__version__}",
+        f"Prefix: {router.prefix}",
+        f"Commands: {len(router.commands)}",
+        "",
+        *summary,
+        "",
+        "Use .help <category> for the command list,",
+        "or .help <command> for usage and examples.",
+    ]
     return await ctx.reply(
-        f"✨ **Reze Userbot Is Alive & Operational!**\n"
-        f"• نسخه: `v{__version__}`\n"
-        f"• مدت فعالیت: `{uptime_str}`\n"
-        f"• وضعیت سیستم: پایدار و ایمن ✅\n"
-        f"• سازنده: **{__author__}** | کانال: {__channel__}"
+        ascii.frame(
+            "Command index",
+            body,
+            footer=f"{__author__} · {__channel__}",
+        )
+    )
+
+
+@router.register(name="ping", category="General", description="Measure command round-trip latency.", usage=".ping")
+async def ping_cmd(ctx: CommandContext):
+    started = time.time()
+    latency = (time.time() - started) * 1000
+    return await ctx.reply(
+        ascii.success("Pong", [f"Handler latency: {latency:.1f} ms", f"Uptime: {str(timedelta(seconds=int(time.time() - START_TIME)))}"])
+    )
+
+
+@router.register(name="alive", category="General", description="Confirm the userbot is running.", usage=".alive")
+async def alive_cmd(ctx: CommandContext):
+    telegram = telegram_manager.status()
+    return await ctx.reply(
+        ascii.success(
+            "Reze is alive",
+            [
+                f"Version: {__version__}",
+                f"Uptime: {str(timedelta(seconds=int(time.time() - START_TIME)))}",
+                f"Telegram: {'connected' if telegram['connected'] else 'panel-only mode'}",
+                f"Theme: {ascii.active_theme_name()}",
+            ],
+            footer=f"{__author__} · {__channel__}",
+        )
     )
 
 
 @router.register(
     name="credits",
     category="General",
-    description="نمایش سازنده و کانال رسمی پروژه Reze",
+    description="Show the author and the official channel.",
+    usage=".credits",
     aliases=["creator", "developer", "support"],
 )
 async def credits_cmd(ctx: CommandContext):
     return await ctx.reply(
-        f"🌸 **Reze Telegram Userbot**\n\n"
-        f"👤 سازنده و توسعه‌دهنده: **{__author__}**\n"
-        f"📣 کانال رسمی: **{__channel}**\n"
-        f"🔗 لینک کانال: {__channel_url__}\n"
-        f"🏷️ نسخه: `{__version__}`\n\n"
-        f"💚 با عضویت در کانال از توسعه پروژه حمایت کنید."
+        ascii.frame(
+            "Reze",
+            [
+                f"Author: {__author__}",
+                f"Channel: {__channel__}",
+                f"Source: {__channel_url__}",
+                f"Version: {__version__}",
+            ],
+            footer="MIT licensed",
+        )
     )
 
 
-@router.register(name="info", category="General", description="اطلاعات کلی اکانت و وضعیت اتصال")
+@router.register(name="info", category="General", description="Account and deployment information.", usage=".info")
 async def info_cmd(ctx: CommandContext):
     return await ctx.reply(
-        f"👤 **Reze Account Info**\n"
-        f"• مالک شناسه: `{settings.owner_id}`\n"
-        f"• منطقه زمانی: `{settings.timezone}`\n"
-        f"• دیتابیس: `SQLite (WAL mode)`\n"
-        f"• بک‌اند سشن: `{settings.session_backend}`\n"
-        f"• پلتفرم استقرار: `{settings.platform_name}`"
+        ascii.frame(
+            "Account",
+            [
+                f"Owner id: {settings.owner_id}",
+                f"Timezone: {settings.timezone}",
+                f"Database: SQLite (WAL)",
+                f"Session backend: {settings.session_backend}",
+                f"Platform: {settings.platform_name}",
+            ],
+        )
     )
 
 
-@router.register(name="id", category="General", description="دریافت شناسه کاربر، گروه یا پیام")
+@router.register(name="id", category="General", description="Show user, chat and message identifiers.", usage=".id")
 async def id_cmd(ctx: CommandContext):
     target_id = await ctx.get_target_user_id() or ctx.sender_id
-    lines = [
-        f"🆔 **شناسه‌ها:**",
-        f"• کاربر: `{target_id}`",
-        f"• چت/گروه: `{ctx.chat_id}`"
-    ]
+    lines = [f"User: {target_id}", f"Chat: {ctx.chat_id}"]
     if ctx.is_reply:
-        lines.append(f"• پیام ریپلای: `{getattr(ctx.message, 'reply_to_msg_id', 'N/A')}`")
-    return await ctx.reply("\n".join(lines))
+        lines.append(f"Reply message: {getattr(ctx.message, 'reply_to_msg_id', 'unknown')}")
+    lines.append(f"Your id: {ctx.sender_id}")
+    return await ctx.reply(ascii.frame("Identifiers", lines))
 
 
-@router.register(name="stats", category="General", description="آمار داخلی اجرای دستورات و خطاهای ثبت‌شده")
+@router.register(name="stats", category="General", description="Local database and usage statistics.", usage=".stats")
 async def stats_cmd(ctx: CommandContext):
     stats = db.get_stats()
     return await ctx.reply(
-        f"📊 **آمار Reze Userbot:**\n"
-        f"• دستورات اجراشده: `{router.total_executed}`\n"
-        f"• خطاهای رخ‌داده: `{router.errors_count}`\n"
-        f"• گروه‌های پیکربندی‌شده: `{stats.get('groups', 0)}`\n"
-        f"• فیلترهای ثبت‌شده: `{stats.get('filters', 0)}`\n"
-        f"• یادداشت‌ها: `{stats.get('notes', 0)}`\n"
-        f"• اخطارها: `{stats.get('warnings', 0)}`"
+        ascii.frame(
+            "Statistics",
+            [
+                f"Commands executed: {router.total_executed}",
+                f"Errors: {router.errors_count}",
+                f"Denied: {router.denied_count}",
+                f"Configured groups: {stats.get('groups', 0)}",
+                f"Filters: {stats.get('filters', 0)}",
+                f"Group notes: {stats.get('notes', 0)}",
+                f"Warnings: {stats.get('warnings', 0)}",
+                f"Archive entries: {stats.get('archive', 0)}",
+                f"Pending reminders: {stats.get('reminders', 0)}",
+                f"Automation rules: {stats.get('automations', 0)}",
+            ],
+        )
     )
 
 
-@router.register(name="uptime", category="General", description="مدت زمان اجرای پروسه")
+@router.register(name="uptime", category="General", description="Show process uptime.", usage=".uptime")
 async def uptime_cmd(ctx: CommandContext):
-    uptime_sec = int(time.time() - START_TIME)
-    return await ctx.reply(f"⏳ **Uptime:** `{str(timedelta(seconds=uptime_sec))}`")
+    return await ctx.reply(
+        ascii.info("Uptime", [str(timedelta(seconds=int(time.time() - START_TIME)))])
+    )
 
 
-@router.register(name="version", category="General", description="نمایش نگارش جاری Reze")
+@router.register(name="version", category="General", description="Show the running Reze version.", usage=".version")
 async def version_cmd(ctx: CommandContext):
     return await ctx.reply(
-        f"🚀 **Reze Userbot** version `{__version__}` (Production Ready)\n"
-        f"👤 سازنده: **{__author__}** | 📣 کانال: {__channel__}"
+        ascii.frame(
+            "Version",
+            [f"Version: {__version__}", f"Author: {__author__}", f"Channel: {__channel__}"],
+        )
     )
 
 
-@router.register(name="settings", category="General", description="نمایش تنظیمات فعال ربات", owner_only=True)
+@router.register(
+    name="settings",
+    category="General",
+    description="Show environment configuration (no secrets).",
+    usage=".settings",
+    owner_only=True,
+)
 async def settings_cmd(ctx: CommandContext):
     return await ctx.reply(
-        f"⚙️ **تنظیمات فعال Reze:**\n"
-        f"• پیشوند: `{router.prefix}`\n"
-        f"• منطقه زمانی: `{settings.timezone}`\n"
-        f"• فاصله ساعت: `{settings.clock_interval_minutes} دقیقه`\n"
-        f"• وب پنل پورت: `{settings.web_port}`\n"
-        f"• سطح لاگ: `{settings.log_level}`"
+        ascii.frame(
+            "Environment",
+            [
+                f"Prefix: {router.prefix}",
+                f"Timezone: {settings.timezone}",
+                f"Clock interval: {settings.clock_interval_minutes} min",
+                f"Web port: {settings.web_port}",
+                f"Log level: {settings.log_level}",
+                f"Task concurrency: {settings.task_concurrency}",
+                f"Media input limit: {settings.media_max_input_mb} MB",
+                f"AI configured: {'yes' if settings.ai_enabled else 'no'}",
+            ],
+            footer="User preferences: .config",
+        )
     )
 
 
-@router.register(name="webpanel", category="General", description="دریافت آدرس پنل وب مدیریت", owner_only=True)
+@router.register(
+    name="webpanel",
+    category="General",
+    description="Show the web panel URL and health endpoint.",
+    usage=".webpanel",
+    owner_only=True,
+)
 async def webpanel_cmd(ctx: CommandContext):
     url = settings.display_url
     return await ctx.reply(
-        f"🌐 **پنل وب Reze:**\n"
-        f"آدرس ورود: {url}\n"
-        f"نام کاربری: `{settings.panel_username}`\n"
-        f"سلامت سرویس: `{url.rstrip('/')}{settings.healthcheck_path}`\n"
-        f"⚠️ برای تغییر رمز از اسکریپت `scripts/generate_hash.py` استفاده کنید."
+        ascii.frame(
+            "Web panel",
+            [
+                f"URL: {url}",
+                f"Username: {settings.panel_username}",
+                f"Health: {url.rstrip('/')}{settings.healthcheck_path}",
+                "Change the password with scripts/generate_hash.py",
+            ],
+        )
     )
 
 
-@router.register(name="logs", category="General", description="مشاهده آخرین خطوط لاگ سیستم", owner_only=True)
+@router.register(
+    name="logs",
+    category="General",
+    description="Show the most recent log lines.",
+    usage=".logs [count]",
+    owner_only=True,
+)
 async def logs_cmd(ctx: CommandContext):
+    count = 10
+    if ctx.args and ctx.args[0].isdigit():
+        count = max(1, min(int(ctx.args[0]), 30))
     if not LOG_BUFFER:
-        return await ctx.reply("📋 در حال حاضر هیچ لاگی در بافر ثبت نشده است.")
-    recent = list(LOG_BUFFER)[-10:]
-    lines = ["📋 **آخرین لاگ‌های Reze:**\n"]
-    for item in recent:
-        lines.append(f"`[{item.get('level')}]` {item.get('message')}")
-    return await ctx.reply("\n".join(lines))
+        return await ctx.reply(ascii.info("Logs", ["The log buffer is empty."]))
+    recent = list(LOG_BUFFER)[-count:]
+    lines = [f"[{item.get('level')}] {ascii.sanitize(item.get('message', ''))[:160]}" for item in recent]
+    return await ctx.reply(ascii.section("Recent logs", lines))
 
 
-@router.register(name="shutdown", category="General", description="توقف امن سرویس یوزربات", owner_only=True)
+@router.register(
+    name="shutdown",
+    category="General",
+    description="Stop the Reze process safely.",
+    usage=".shutdown",
+    owner_only=True,
+)
 async def shutdown_cmd(ctx: CommandContext):
-    await ctx.reply("🛑 در حال خاموش کردن امن سرویس Reze...")
+    await ctx.reply(ascii.warning("Shutting down", ["The process will stop now."]))
     sys.exit(0)
 
 
-@router.register(name="restart", category="General", description="راه‌اندازی مجدد پروسه یوزربات", owner_only=True)
+@router.register(
+    name="restart",
+    category="General",
+    description="Restart the Reze process.",
+    usage=".restart",
+    owner_only=True,
+)
 async def restart_cmd(ctx: CommandContext):
-    await ctx.reply("🔄 در حال راه‌اندازی مجدد سرویس...")
+    await ctx.reply(ascii.warning("Restarting", ["The process will restart now."]))
     os.execv(sys.executable, [sys.executable] + sys.argv)

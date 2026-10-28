@@ -202,6 +202,7 @@ class RezeTelegramClient:
                 "Connected to Telegram (session backend: %s).", self.session_backend
             )
             self._persist_session_snapshot()
+            self._harden_session_file_permissions()
 
             try:
                 me = await self.client.get_me()
@@ -373,6 +374,16 @@ class RezeTelegramClient:
             logger.info("A copy of the session string was saved to %s.", target)
         except Exception as exc:
             logger.debug("Could not persist the session snapshot: %s", exc)
+
+    def _harden_session_file_permissions(self) -> None:
+        """Restrict the Telethon session file to the owner where supported."""
+        if self.session_backend != "file":
+            return
+        try:
+            if os.path.exists(self.session_path):
+                os.chmod(self.session_path, 0o600)
+        except OSError as exc:  # Windows and some filesystems do not support this
+            logger.debug("Could not restrict session file permissions: %s", exc)
 
     # ------------------------------------------------------------------ closing
     async def logout(self):

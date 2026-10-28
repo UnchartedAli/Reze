@@ -1,49 +1,118 @@
 """
-Privacy & Account Safety Commands for Reze Userbot.
-Safely guides owner without ever exposing private tokens or session files.
+Privacy and account-safety commands.
+
+These commands never expose session strings, API hashes or tokens; they report
+connection state and give the owner a checklist for account safety.
 """
 
-from reze.command_router import router, CommandContext
-from reze.config import settings
-from reze.database import db
+import os
+import shutil
+from datetime import datetime
 
-@router.register(name="privacy", category="Privacy", description="راهنمای تنظیمات حریم خصوصی حساب", owner_only=True)
+from reze.command_router import CommandContext, router
+from reze.config import settings
+from reze.telegram_client import telegram_manager
+from reze.ui import ascii
+
+CATEGORY = "Privacy"
+
+
+@router.register(
+    name="privacy",
+    category=CATEGORY,
+    description="Show the privacy and secret-handling rules Reze follows.",
+    usage=".privacy",
+    owner_only=True,
+)
 async def privacy_cmd(ctx: CommandContext):
     return await ctx.reply(
-        "🔐 **رهنمودهای امنیت و حریم خصوصی Reze:**\n\n"
-        "1. فایل نشست (`.session`) در مسیر ایزوله نگهداری می‌شود و در پنل وب یا گیت منتشر نمی‌شود.\n"
-        "2. هش رمز پنل وب با الگوریتم امن نگهداری می‌شود.\n"
-        "3. کدهای ۵ رقمی و توکن‌ها در لاگ‌ها ماسک می‌شوند.\n"
-        "4. کلیه عملیات خطرناک نیازمند اعتبارسنجی مالک هستند."
+        ascii.frame(
+            "Privacy",
+            [
+                "Sessions are stored on disk with restrictive permissions.",
+                "API hashes, keys and session strings are never sent to the panel.",
+                "Logs mask credentials, auth codes and tokens.",
+                "AI prompts and responses are never logged.",
+                "Media is processed in a temporary workspace and deleted afterwards.",
+                "Personal archives stay in your local SQLite database.",
+            ],
+            footer="See docs/SECURITY.md",
+        )
     )
 
 
-@router.register(name="sessions", category="Privacy", description="راهنمای بررسی نشست‌های فعال حساب کاربری", owner_only=True)
+@router.register(
+    name="sessions",
+    category=CATEGORY,
+    description="Explain how to review active Telegram sessions.",
+    usage=".sessions",
+    owner_only=True,
+)
 async def sessions_cmd(ctx: CommandContext):
+    status = telegram_manager.status()
     return await ctx.reply(
-        "📱 **بررسی نشست‌های فعال (Active Sessions):**\n"
-        "برای نظارت بر دستگاه‌های متصل، لطفاً مستقیماً در اپلیکیشن تلگرام به مسیر زیر بروید:\n"
-        "`Settings ➔ Devices / Active Sessions`\n"
-        "اگر نشست ناشناسی مشاهده کردید بلافاصله آن را خاتمه دهید."
+        ascii.frame(
+            "Sessions",
+            [
+                f"Current backend: {status['session_backend']}",
+                f"Connected: {'yes' if status['connected'] else 'no'}",
+                "",
+                "To review every device:",
+                "Telegram app -> Settings -> Devices",
+                "Terminate any session you do not recognise.",
+                "",
+                "Reze cannot decrypt or bypass account protections.",
+            ],
+        )
     )
 
 
-@router.register(name="accountstatus", category="Privacy", description="بررسی اتصال و وضعیت سلامت اکانت", owner_only=True)
+@router.register(
+    name="accountstatus",
+    category=CATEGORY,
+    description="Report real connection state for this account.",
+    usage=".accountstatus",
+    owner_only=True,
+)
 async def accountstatus_cmd(ctx: CommandContext):
+    status = telegram_manager.status()
     return await ctx.reply(
-        "🟢 **وضعیت اتصال حساب کاربری:**\n"
-        "• نشست جاری: فعال و متصل\n"
-        "• پایداری سوکت MTProto: پایدار\n"
-        "• محدودیت موقت (FloodWait): ندارد ✅"
+        ascii.frame(
+            "Account status",
+            [
+                f"Configured: {'yes' if status['configured'] else 'no'}",
+                f"Connected: {'yes' if status['connected'] else 'no'}",
+                f"Session backend: {status['session_backend']}",
+                f"Telethon available: {'yes' if status['telethon_available'] else 'no'}",
+                f"Platform: {settings.platform_name}",
+            ],
+        )
     )
 
 
-@router.register(name="backup", category="Privacy", description="تهیه نسخه پشتیبان از دیتابیس بدون اطلاعات حساس", owner_only=True)
+@router.register(
+    name="backup",
+    category=CATEGORY,
+    description="Copy the local database to a timestamped backup file.",
+    usage=".backup",
+    owner_only=True,
+    cooldown=30,
+)
 async def backup_cmd(ctx: CommandContext):
-    import shutil
-    import os
-    backup_file = "data/reze_backup.db"
-    if os.path.exists("data/reze.db"):
-        shutil.copy("data/reze.db", backup_file)
-        return await ctx.reply(f"💾 نسخه پشتیبان دیتابیس با موفقیت در `{backup_file}` ذخیره شد.")
-    return await ctx.reply("⚠️ دیتابیس یافت نشد.")
+    source = settings.database_path
+    if not os.path.isfile(source):
+        return await ctx.reply(ascii.warning("No database", [f"Nothing to back up at {source}."]))
+    directory = os.path.dirname(source) or "."
+    stamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    target = os.path.join(directory, f"reze-backup-{stamp}.db")
+    try:
+        shutil.copy2(source, target)
+    except OSError as exc:
+        return await ctx.reply(ascii.error("Backup failed", [ascii.sanitize(str(exc))[:200]]))
+    return await ctx.reply(
+        ascii.success(
+            "Backup created",
+            [f"Path: {target}", f"Size: {os.path.getsize(target) // 1024} KB"],
+            footer="The database contains no Telegram credentials",
+        )
+    )

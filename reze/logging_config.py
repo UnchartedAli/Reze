@@ -12,36 +12,44 @@ from typing import List, Dict
 LOG_BUFFER: deque = deque(maxlen=500)
 
 SENSITIVE_PATTERNS = [
-    re.compile(r'(api_hash=[\'\"]?)[a-f0-9]{32}([\'\"]?)', re.IGNORECASE),
-    re.compile(r'(password_hash=[\'\"]?)[^\'\"]+([\'\"])', re.IGNORECASE),
-    re.compile(r'(session=[\'\"]?)[^\'\"]+([\'\"])', re.IGNORECASE),
-    re.compile(r'(secret[_-]?key=[\'\"]?)[^\'\"]+([\'\"])', re.IGNORECASE),
-    re.compile(r'(?<![:/\d])\b\d{5}\b(?![\d:])'),  # mask Telegram login codes (not ports/paths)
+    re.compile(r"(api_hash=['\"]?)[a-f0-9]{32}(['\"]?)", re.IGNORECASE),
+    re.compile(r"(password_hash=['\"]?)[^'\"]+(['\"])", re.IGNORECASE),
+    re.compile(r"(session=['\"]?)[^'\"]+(['\"])", re.IGNORECASE),
+    re.compile(r"(secret[_-]?key=['\"]?)[^'\"]+(['\"])", re.IGNORECASE),
+    re.compile(r"(api[_-]?key['\"]?\s*[:=]\s*['\"]?)[A-Za-z0-9_\-]{8,}", re.IGNORECASE),
+    re.compile(r"(Bearer\s+)[A-Za-z0-9._\-]{8,}", re.IGNORECASE),
+    re.compile(r"(?<![:/\d])\b\d{5}\b(?![\d:])"),  # mask Telegram login codes (not ports/paths)
 ]
 
 
 class SensitiveDataFilter(logging.Filter):
-    """Filters and masks sensitive Telegram credentials, auth codes, and hashes."""
+    """Masks credentials, bearer tokens and auth codes before they are stored."""
+
     def filter(self, record: logging.LogRecord) -> bool:
         msg = str(record.getMessage())
         for pattern in SENSITIVE_PATTERNS:
-            msg = pattern.sub(r'\1***MASKED***\2' if pattern.groups >= 2 else '***MASKED_CODE***', msg)
+            msg = pattern.sub(
+                r"\1***MASKED***\2" if pattern.groups >= 2 else "***MASKED_CODE***", msg
+            )
         record.msg = msg
         record.args = ()
         return True
 
 
 class BufferLogHandler(logging.Handler):
-    """Stores logs into in-memory deque for dashboard display."""
+    """Stores formatted records in memory for the dashboard log view."""
+
     def emit(self, record: logging.LogRecord):
         try:
-            msg = self.format(record)
-            LOG_BUFFER.append({
-                "timestamp": record.asctime if hasattr(record, "asctime") else "",
-                "level": record.levelname,
-                "module": record.name,
-                "message": msg,
-            })
+            LOG_BUFFER.append(
+                {
+                    "created": record.created,
+                    "timestamp": self.format(record),
+                    "level": record.levelname,
+                    "module": record.name,
+                    "message": self.format(record),
+                }
+            )
         except Exception:
             pass
 
