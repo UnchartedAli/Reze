@@ -3,6 +3,38 @@
 All notable changes to **Reze** are documented here.
 Developer: **UnchartedAli** · Channel: **[@yamods](https://t.me/yamods)**
 
+## [2.1.0] — Unreleased
+
+### Added
+- **Message Guard** (`reze/modules/msglog.py`, `.watch`): keeps a short-lived
+  local copy of messages from the chats you choose and sends deleted (and
+  optionally edited) messages to Saved Messages. Small media files are cached
+  immediately so deleted photos, videos, voice notes and files can be re-sent.
+  Per-chat watch list, all-private / all-groups switches, custom destination,
+  configurable retention (default 48 h, auto-purged) and a 25 MB media limit.
+  Channel/supergroup ids are scoped separately from private-chat ids, because
+  Telegram's delete events carry no chat id for private chats.
+
+### Added (owner suite, 2.1)
+- **Owner-only command handling:** strangers typing `.something` in a group get no reaction at all (no reply, no "unknown command"). `REZE_PUBLIC_COMMANDS=true` restores the old behaviour. Their messages still pass through filters and automation.
+- Owner: `.owner`, `.botinfo`, `.exec` (opt-in via `REZE_ENABLE_EXEC`), `.setvar/.getvar/.delvar` (`REZE_*` only, secrets masked), `.block/.unblock`, `.broadcast/.bc` (confirmation code, rate limit), `.update`.
+- Group: `.promote`, `.demote`, `.hidetag`, `.setdesc`, `.settitle`, `.invite`, `.join`, `.leave`.
+- Download: `.yt/.play`, `.ytv`, `.yta`, `.song`, `.instagram/.ig`, `.tiktok/.tt`, `.facebook/.fb`, `.pinterest`, `.mediafire` (yt-dlp is optional).
+- Tools: `.weather`, `.github`, `.tts`, `.url`. Fun: `.quote`, `.joke`, `.roast`, `.ship`, `.truth`, `.dare`, `.tictactoe` (unbeatable AI or two players).
+- `.sticker` / `.s` now converts GIFs and videos to WebM video stickers and sends real stickers; aliases `.toimg`, `.tomp3`, `.tr`.
+
+- **Message Guard: timed media.** Self-destructing (timer / view-once) photos, videos and voice notes in watched chats are copied to Saved Messages as soon as they arrive. `.watch ttl on|off`; on by default for watched chats.
+
+- **Permanent archive:** deleted messages and timed media that were delivered are also kept locally (metadata in SQLite, files in `data/msglog/archive/`) and are never purged automatically. `.watch archive on|off|clear`, `.watch keep forever`.
+
+### Fixed
+- `CommandContext.send_file` passed the chat as a `chat_id` keyword, but
+  Telethon's signature is `send_file(entity, file, ...)`. Every media reply
+  (stickers, GIFs, images, `.qr`, `.download`) failed with "missing 1 required
+  positional argument: 'entity'". The chat is now passed positionally.
+- The test double `DummyClient.send_file` now mirrors Telethon's signature so
+  this class of bug is caught by the suite.
+
 ## [2.0.0] — 2026-10-28
 
 REZE 2.0 turns the userbot into a coherent platform. Everything is English-only,

@@ -5,7 +5,16 @@ engine, a media studio, a multi-provider AI gateway, personal productivity
 tools, an automation engine, a manifest-validated plugin system and a
 dependency-free web control panel.
 
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Telethon](https://img.shields.io/badge/built%20with-Telethon-2CA5E0?logo=telegram&logoColor=white)](https://github.com/LonamiWebs/Telethon)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Telegram channel](https://img.shields.io/badge/channel-%40yamods-2CA5E0?logo=telegram&logoColor=white)](https://t.me/yamods)
+
 Version **2.0.0** · Author **UnchartedAli** · Channel [@yamods](https://t.me/yamods) · MIT
+
+> **Self-hosted, terminal-styled Telegram userbot** — sticker/GIF studio, AI
+> commands, message recovery, automation and a web panel. One process, SQLite,
+> no cloud lock-in.
 
 ```
 ██████╗ ███████╗███████╗███████╗
@@ -18,6 +27,33 @@ Version **2.0.0** · Author **UnchartedAli** · Channel [@yamods](https://t.me/y
 ```
 
 ---
+
+## Preview
+
+Every reply is rendered by one shared engine, so all commands look the same.
+These blocks are real output of `reze.ui.ascii`:
+
+```text
+╔══════════════════════════════════════╗
+║ ◆ [ OK ] STICKER READY               ║
+╠══════════════════════════════════════╣
+║ Format : WEBP 512x512                ║
+║ Size   : 38 KB                       ║
+║ Status : SUCCESS                     ║
+╚══════════════════════════════════════╝
+```
+
+```text
+╔══════════════════════════════════════╗
+║ ◆ DELETED MESSAGE                    ║
+╠══════════════════════════════════════╣
+║ From : Sara (@sara) [77]             ║
+║ Chat : Team Chat (group)             ║
+║ Sent : 2026-10-29 12:00:00           ║
+║                                      ║
+║ Meeting moved to 18:30               ║
+╚══════════════════════════════════════╝
+```
 
 ## What is Reze?
 
@@ -52,6 +88,8 @@ gracefully instead of breaking the core commands.
 - **Web panel** — real service state, plugin/task management, settings, logs,
   archive and automation editing; session auth, CSRF tokens, strict CSP, no
   JavaScript.
+- **Message Guard** — saves deleted (and edited) messages of the chats you
+  choose, including cached media, to Saved Messages. See [below](#message-guard).
 - **Task manager** — bounded concurrency, queue limits, per-task timeout,
   cancellation and progress reporting.
 
@@ -85,6 +123,17 @@ password, then send `.help` to your own account from any chat.
 
 > A userbot acts as **you**. Only run Reze on an account you own, and keep the
 > session string and API hash private.
+
+### Docker
+
+```bash
+cp .env.example .env              # fill in the values
+python scripts/generate_session.py   # run once, locally, to get REZE_SESSION_STRING
+docker compose up -d --build
+docker compose logs -f
+```
+
+More targets (systemd, Render, Railway, Fly.io, nginx): [DEPLOY.md](DEPLOY.md).
 
 ## Configuration
 
@@ -122,10 +171,66 @@ Every command has usage help: `.help <command>`. Full reference:
 | Tasks | `.queue` `.cancel` `.status` |
 | Plugins | `.plugins` `.plugin` `.plugininfo` `.plugintemplate` |
 | Automation | `.automation list/show/create/enable/disable/delete` |
+| Owner | `.owner` `.botinfo` `.exec` `.setvar` `.getvar` `.delvar` `.block` `.unblock` `.broadcast` `.update` |
+| Group+ | `.promote` `.demote` `.hidetag` `.setdesc` `.settitle` `.invite` `.join` `.leave` |
+| Download | `.yt` `.ytv` `.yta` `.song` `.ig` `.tt` `.fb` `.pinterest` `.mediafire` |
+| Tools | `.weather` `.github` `.tts` `.url` `.sticker` / `.s` (images, GIFs, videos) |
+| Fun | `.quote` `.joke` `.roast` `.ship` `.truth` `.dare` `.tictactoe` |
+| Guard | `.watch on/off/add/del/list/private/groups/edits/media/dest/keep/clear` |
 | Groups | `.ban` `.kick` `.mute` `.warn` `.purge` `.pin` `.admins` `.tagall` `.antiflood` `.lock` `.filter` |
 
 Long outputs are split automatically at Telegram's 4096-character limit, and
 code spans are rebalanced so pagination never breaks Markdown parsing.
+
+## Message Guard
+
+`.watch` keeps a short-lived local copy of messages from the chats you choose.
+When one is **deleted** (or **edited**), the saved copy is sent to Saved Messages.
+Small media (photos, videos, voice notes, files up to 25 MB) is cached right away,
+because a deleted file can no longer be downloaded afterwards.
+
+```text
+.watch on                  enable the guard
+.watch add                 watch the current chat   (or: .watch add <chat_id>)
+.watch private on          watch every private chat
+.watch groups on           watch every group
+.watch edits on|off        also report edits (before / after)
+.watch ttl on|off          save self-destructing (timed / view-once) media at once
+.watch dest me|here|<id>   where reports go (default: Saved Messages)
+.watch archive on|off|clear permanent local copy of deleted + timed media (default ON)
+.watch keep 72|forever     how long the temporary cache is kept (default 48 h)
+.watch list | status | clear | del
+```
+
+Self-destructing photos, videos and voice notes are copied to Saved Messages the moment they
+arrive (`.watch ttl off` disables this). Messages removed by a chat's auto-delete timer are
+recovered like any other deleted message. Your own messages are ignored unless you enable `.watch own on`. Everything that was delivered is also kept in a **permanent archive** (`data/msglog/archive/`, never
+auto-deleted; `.watch archive clear` empties it). Only the temporary cache is purged automatically. Limits: it cannot recover messages that
+were deleted while Reze was offline, secret chats are not visible to any userbot,
+and nothing is saved for chats you did not select.
+
+## Owner-only by design
+
+Reze reacts **only to your own account**. If a stranger types `.something` in a group, they get no reply,
+no error and no "unknown command" hint, so nobody knows a userbot is listening. Commands are never
+exposed to other members. (`REZE_PUBLIC_COMMANDS=true` re-enables the old public behaviour.)
+`.exec` is disabled until you set `REZE_ENABLE_EXEC=true`, and `.broadcast` needs a confirmation code.
+
+Optional extras for downloads and speech: `pip install yt-dlp gTTS` (plus FFmpeg).
+
+## Responsible use
+
+- A userbot acts as **you**. Automation that spams, mass-messages or scrapes can
+  get an account limited or banned by Telegram. Keep `.tagall`, broadcasts and
+  automation rules conservative.
+- Message Guard stores other people's messages (temporarily, on your machine) and keeps copies of
+  media the sender set to self-destruct. Senders expect that media to disappear, so use `.watch ttl`
+  only where that is acceptable, and tell people in shared groups.
+  Check the privacy laws and chat rules that apply to you, and tell people if you
+  run it in shared groups.
+- Never share `REZE_SESSION_STRING`, `REZE_API_HASH` or your `.env`. Anyone with
+  the session string controls your account.
+- Reze is an independent project and is not affiliated with Telegram.
 
 ## Always-online presence
 
@@ -259,6 +364,22 @@ tests/               unittest suite
 
 See [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md).
 
+## Contributing
+
+Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md)
+first: it covers the dev setup, the test command and how to write a plugin.
+Security problems: see [SECURITY.md](SECURITY.md) (please do not open a public issue).
+
+## Documentation
+
+[Commands](docs/COMMANDS.md) · [Plugin guide](docs/PLUGIN_GUIDE.md) ·
+[AI](docs/AI.md) · [Automation](docs/AUTOMATION.md) ·
+[Security](docs/SECURITY.md) · [Testing](docs/TESTING.md) ·
+[Known limitations](docs/KNOWN_LIMITATIONS.md) · [Deploy](DEPLOY.md) ·
+[Changelog](CHANGELOG.md)
+
 ## License and credits
 
 MIT. Built by **UnchartedAli** — channel [@yamods](https://t.me/yamods).
+
+If Reze is useful to you, a ⭐ on GitHub helps other people find it.

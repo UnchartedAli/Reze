@@ -1,0 +1,11 @@
+# Secrets and runtime state - never commit these
+.env
+*.session
+*.session-journal
+data/
+tests/test_data/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
