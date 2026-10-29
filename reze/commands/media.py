@@ -44,6 +44,7 @@ async def _run_job(
     title: str,
     caption: str = "",
     document: bool = False,
+    send_kwargs=None,
 ) -> None:
     """
     Download replied media, run *worker* in the task manager, send the result.
@@ -104,10 +105,12 @@ async def _run_job(
             ),
         )
         try:
+            extra = send_kwargs(output) if callable(send_kwargs) else (send_kwargs or {})
             await ctx.send_file(
                 file=output,
                 caption=ascii.escape_for_caption(caption) if caption else None,
                 force_document=document,
+                **extra,
             )
         except Exception as exc:  # noqa: BLE001 - Telegram send failures
             logger.error("Could not send the media result: %s", exc)
@@ -156,30 +159,56 @@ def _require_ffmpeg_or_error():
 
 
 # ---------------------------------------------------------------------- images
+def _is_animated_image(path: str) -> bool:
+    """True for animated GIF/WebP: they must become video stickers, not a still frame."""
+    try:
+        from PIL import Image
+
+        with Image.open(path) as image:
+            return bool(getattr(image, "is_animated", False)) and getattr(image, "n_frames", 1) > 1
+    except Exception:  # noqa: BLE001 - not an image Pillow understands
+        return False
+
+
 @router.register(
     name="sticker",
     category=MEDIA_CATEGORY,
-    description="Convert a replied image into a 512x512 Telegram static sticker.",
-    usage=".sticker (reply to an image)",
+    aliases=["s"],
+    description="Convert a replied image, GIF or video into a Telegram sticker.",
+    usage=".sticker [emoji]  (reply to an image, GIF or video)",
     cooldown=2,
 )
 async def sticker_cmd(ctx: CommandContext):
+    emoji = (ctx.args[0] if ctx.args else "") or "\U0001F338"
+
     def worker(source, workspace, record):
-        if not images.available():
-            raise MissingDependencyError("Pillow is required for stickers. Install it with pip.")
-        record.update(40, "converting to WebP")
-        output = workspace.child("sticker.webp")
-        images.make_sticker(source, output)
+        if source.lower().endswith(".tgs"):
+            raise MediaError("Animated (TGS) stickers cannot be converted.")
+        if images.available() and images.is_image(source) and not _is_animated_image(source):
+            record.update(40, "converting to WebP")
+            output = workspace.child("sticker.webp")
+            images.make_sticker(source, output)
+            record.update(90, "validating")
+            return output
+        _require_ffmpeg_or_error()
+        record.update(40, "encoding WebM video sticker")
+        output = workspace.child("sticker.webm")
+        ffmpeg.to_video_sticker(source, output)
         record.update(90, "validating")
         return output
+
+    def sticker_attributes(output):
+        from telethon.tl.types import DocumentAttributeSticker, InputStickerSetEmpty
+
+        return {"attributes": [DocumentAttributeSticker(alt=emoji[:8], stickerset=InputStickerSetEmpty())]}
 
     return await _run_job(
         ctx,
         "sticker",
         worker,
         title="Sticker conversion",
-        caption="512x512 WebP sticker",
         document=True,
+        send_kwargs=sticker_attributes,
     )
 
 
@@ -349,6 +378,7 @@ async def addsticker_cmd(ctx: CommandContext):
 
 @router.register(
     name="toimage",
+    aliases=["toimg"],
     category=MEDIA_CATEGORY,
     description="Extract a still image from replied media (first frame by default).",
     usage=".toimage [frame_index]",
@@ -549,6 +579,7 @@ async def tovideo_cmd(ctx: CommandContext):
 
 @router.register(
     name="toaudio",
+    aliases=["tomp3"],
     category=MEDIA_CATEGORY,
     description="Extract the audio track from replied video or media.",
     usage=".toaudio",

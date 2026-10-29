@@ -111,6 +111,7 @@ async def summarize_cmd(ctx: CommandContext):
 
 @router.register(
     name="translate",
+    aliases=["tr"],
     category=CATEGORY,
     description="Translate replied or provided text into another language.",
     usage=".translate <language> [text]",
