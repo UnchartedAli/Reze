@@ -102,8 +102,10 @@ class DummyClient:
         self.sent.append((chat_id, text))
         return DummyMessage(text=text, chat_id=chat_id)
 
-    async def send_file(self, **kwargs):
-        self.sent_files.append(kwargs)
+    async def send_file(self, entity, file, **kwargs):
+        # Same positional signature as Telethon: send_file(entity, file, *, ...).
+        # (The old **kwargs-only double hid a real "missing 'entity'" bug.)
+        self.sent_files.append({"entity": entity, "file": file, **kwargs})
         return DummyMessage(text=str(kwargs.get("caption", "")))
 
     async def download_media(self, message, file=None):
