@@ -1,0 +1,26 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Include the exact command and the reply Reze sent.
+    validations: {required: true}
+  - type: textarea
+    id: expected
+    attributes: {label: "What did you expect?"}
+  - type: input
+    id: version
+    attributes: {label: "Reze version", placeholder: "2.0.0"}
+    validations: {required: true}
+  - type: input
+    id: env
+    attributes: {label: "Python version and OS / Docker"}
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: "Remove secrets first (session string, api hash, phone numbers)."
+      render: text
