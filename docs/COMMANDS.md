@@ -66,6 +66,73 @@ Aliases: `.automation` = .auto
 Aliases: `.credits` = .creator, .developer, .support
 
 
+> **Owner-only:** since 2.1 Reze reacts only to messages from your own account. Anyone else typing `.something` gets no reply and no error. Set `REZE_PUBLIC_COMMANDS=true` to restore the old behaviour.
+
+## Owner
+
+| Command | Access | Description |
+| --- | --- | --- |
+| `.owner` | owner | Details of this account and the configured owner. |
+| `.botinfo` | owner | Version, uptime, runtime, optional tools and enabled features. |
+| `.exec <command>` | owner | Run a shell command. Disabled unless `REZE_ENABLE_EXEC=true`; 60 s timeout; secrets are removed from the child environment. |
+| `.setvar <REZE_NAME> <value>` | owner | Write a `REZE_*` variable to `.env` (secrets are masked and the command message is deleted). |
+| `.getvar [REZE_NAME]` | owner | Show one variable or list all `REZE_*` values (secrets masked). |
+| `.delvar <REZE_NAME>` | owner | Remove a variable from `.env`. |
+| `.block / .unblock` | owner | Block or unblock a user (reply, id, @username or private chat). |
+| `.broadcast / .bc <groups\|users\|all> <text>` | owner | Send to many chats. Needs `.broadcast confirm <code>`, ~2 s between sends, capped by `REZE_BROADCAST_MAX` (default 100). Bots, channels and Saved Messages are skipped. |
+| `.update [now]` | owner | Check for updates with git; `.update now` pulls and reinstalls requirements. Restart with `.restart`. |
+
+## Group
+
+| Command | Access | Description |
+| --- | --- | --- |
+| `.promote (reply\|id) [full] [title]` | owner | Make a member admin; `full` also allows adding admins. |
+| `.demote (reply\|id)` | owner | Remove admin rights. |
+| `.hidetag <text>` | owner | Notify everyone with an invisible mention (up to `REZE_MAX_TAGALL_LIMIT` members). |
+| `.setdesc <text>` | owner | Change the group description (max 255 characters). |
+| `.settitle <name>` | owner | Rename the group. (`.setname` changes your own profile name.) |
+| `.invite` | owner | Create an invite link. |
+| `.join <link\|@name>` | owner | Join a group or channel. |
+| `.leave` | owner | Leave the current chat (needs a confirmation code). |
+
+## Download
+
+| Command | Access | Description |
+| --- | --- | --- |
+| `.yt / .play <link\|words>` | owner | YouTube video up to 720p. |
+| `.ytv [144-1080] <link\|words>` | owner | YouTube video in a chosen quality. |
+| `.yta <link\|words>` | owner | YouTube audio as mp3. |
+| `.song <name>` | owner | Search a song and send audio with title/artist. |
+| `.instagram / .ig, .tiktok / .tt, .facebook / .fb <link>` | owner | Download the video of a post. Needs yt-dlp; some sites need `REZE_YTDLP_COOKIES`. |
+| `.pinterest <link>` | owner | Download a pin's image or video. |
+| `.mediafire <link>` | owner | Download a file from MediaFire. |
+
+## Tools
+
+| Command | Access | Description |
+| --- | --- | --- |
+| `.weather <city>` | owner | Current weather (Open-Meteo). |
+| `.github <owner/repo\|user>` | owner | Repository or user information. |
+| `.tts [lang] <text>` | owner | Text to voice message (gTTS; text is sent to Google). |
+| `.url` | owner | Upload a replied file to catbox.moe and return a public link. |
+| `.sticker / .s [emoji]` | owner | Image, GIF or video to sticker (video becomes a WebM video sticker). |
+| `.toimg, .tomp3, .tr` | owner | Short aliases of `.toimage`, `.toaudio`, `.translate`. |
+
+## Fun
+
+| Command | Access | Description |
+| --- | --- | --- |
+| `.quote, .joke, .truth, .dare` | owner | Random content. |
+| `.roast (reply\|name)` | owner | Playful roast. |
+| `.ship <a> <b>` | owner | Relationship chance (same result for the same pair). |
+| `.tictactoe [stop]` | owner | Play against Reze (unbeatable) or reply to challenge a member; moves are digits 1-9. |
+
+## Guard
+
+| Command | Access | Description |
+| --- | --- | --- |
+| `.watch <on\|off\|add\|del\|list\|status\|private\|groups\|edits\|media\|ttl\|archive\|own\|dest\|keep\|clear>` | owner | Save deleted/edited messages of chosen chats to Saved Messages. Aliases: `.guard`, `.msglog`. |
+
 ## Intelligence
 
 | Command | Access | Description |

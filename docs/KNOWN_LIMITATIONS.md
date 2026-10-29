@@ -72,3 +72,28 @@ overstates the product.
   best-effort (Ctrl+C path).
 - No Docker image is published by this repository; the included `Dockerfile` is
   a starting point, not a verified release artifact.
+
+## Message Guard
+
+- Only messages received **while Reze is running** can be recovered. Anything deleted while the process was offline is lost.
+- Secret chats are end-to-end encrypted and invisible to userbots.
+- Media above `max_media_mb` (25 MB) is reported as text only; self-destructing media is not saved.
+- Copies are kept for `retention_hours` (default 48) and then purged. Telegram's delete events carry no chat id for private chats and basic groups, so lookups use the account-wide message id there.
+
+## Owner suite and downloaders
+
+- Downloaders depend on third-party sites and on `yt-dlp` staying current (`pip install -U yt-dlp`). Instagram and Facebook often require login cookies. They were not tested against the live sites in the test suite.
+- `.tts` uses gTTS, which sends the text to Google. `.url` uploads files to catbox.moe, where links are public.
+- `.exec` gives shell access to anyone who controls your Telegram account. Leave it disabled unless you need it.
+- `.broadcast` is rate limited, but mass messaging can still get an account restricted by Telegram.
+- Tic-tac-toe uses plain digit messages because userbots cannot send inline buttons.
+
+## Timed media
+
+- Telegram decides whether a self-destructing file can be downloaded by a third-party client. If it refuses (this can apply to view-once media), Reze sends a short notice instead of the file. This behaviour was not verified against live Telegram.
+- The copy is saved when the message arrives; Reze cannot recover timed media that arrived while it was offline.
+
+## Archive
+
+- The archive grows without limit until you run `.watch archive clear`; media files stop being archived once it reaches 2 GB (text and metadata are still kept).
+- Archived files are stored unencrypted in `data/`. Protect that folder (disk encryption, file permissions, backups) because it contains other people's messages and media.
