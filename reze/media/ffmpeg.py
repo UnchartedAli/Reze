@@ -283,6 +283,24 @@ def extract_frame(source: str, destination: str, at: float = 1.0) -> str:
     return destination
 
 
+def to_video_sticker(source: str, destination: str, max_kb: int = 256, max_seconds: int = 3) -> str:
+    """
+    Telegram video sticker: WEBM/VP9, <=512 px, <=3 s, <=30 fps, no audio, <=256 KB.
+
+    The bitrate is lowered step by step until the file fits the size limit.
+    """
+    vf = "scale=512:512:force_original_aspect_ratio=decrease,fps=30,format=yuva420p"
+    for bitrate in ("450k", "300k", "200k", "120k", "70k"):
+        run([
+            "-y", "-i", source, "-t", str(max_seconds), "-an", "-vf", vf,
+            "-c:v", "libvpx-vp9", "-b:v", bitrate, "-maxrate", bitrate,
+            "-bufsize", "1M", "-auto-alt-ref", "0", destination,
+        ])
+        if os.path.isfile(destination) and os.path.getsize(destination) <= max_kb * 1024:
+            return destination
+    raise MediaError(f"Could not shrink the clip under {max_kb} KB. Try a shorter or simpler video.")
+
+
 def _require_output(path: str) -> None:
     if not os.path.isfile(path) or os.path.getsize(path) == 0:
         raise MediaError("FFmpeg did not produce an output file.")
