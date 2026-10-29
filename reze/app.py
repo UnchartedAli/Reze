@@ -46,9 +46,17 @@ import reze.commands.productivity  # noqa: F401
 import reze.commands.automation  # noqa: F401
 import reze.commands.system  # noqa: F401
 import reze.commands.presence  # noqa: F401
+import reze.commands.watch  # noqa: F401
+import reze.commands.owner  # noqa: F401
+import reze.commands.groupadmin  # noqa: F401
+import reze.commands.fun  # noqa: F401
+import reze.commands.tools  # noqa: F401
+import reze.commands.downloads  # noqa: F401
 
 from reze.modules.antiflood import antiflood_tracker
 from reze.modules.filters import check_blacklists, check_message_filters
+from reze.games.tictactoe import tictactoe_manager
+from reze.modules.msglog import message_logger
 
 
 async def handle_incoming_telegram_message(event):
@@ -57,6 +65,18 @@ async def handle_incoming_telegram_message(event):
     chat_id = event.chat_id
     sender_id = event.sender_id
     text = getattr(message, "text", "") or ""
+
+    # 0. Message Guard: keep a local copy so deleted/edited messages can be recovered.
+    try:
+        await message_logger.on_new_message(event)
+    except Exception as exc:  # noqa: BLE001 - logging must never break the bot
+        logger.debug("Message Guard capture failed: %s", exc)
+
+    # 0b. Tic-tac-toe moves (plain digits 1-9 from the player whose turn it is).
+    try:
+        await tictactoe_manager.on_message(event)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Tic-tac-toe hook failed: %s", exc)
 
     # 1. Anti-flood (groups only, never for the owner).
     if chat_id and chat_id < 0 and sender_id != settings.owner_id:
@@ -94,7 +114,7 @@ async def handle_incoming_telegram_message(event):
             return
 
     # 3. Dot commands.
-    if text and text.startswith(router.prefix):
+    if text and text.startswith(router.prefix) and router.is_authorized(message):
         try:
             await router.handle_message(message, event.client)
         except Exception as exc:  # noqa: BLE001 - router already replies to users
@@ -116,6 +136,20 @@ async def handle_incoming_telegram_message(event):
             await automation_engine.on_message(message, chat_id, sender_id, text)
         except Exception as exc:  # noqa: BLE001
             logger.error("Automation evaluation failed: %s", exc)
+
+
+async def _on_message_deleted(event):
+    try:
+        await message_logger.on_deleted(event)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Message Guard (delete) failed: %s", exc)
+
+
+async def _on_message_edited(event):
+    try:
+        await message_logger.on_edited(event)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Message Guard (edit) failed: %s", exc)
 
 
 def start_web_server_thread():
@@ -225,6 +259,10 @@ async def main():
     automation_engine.client_provider = lambda: telegram_manager.client
     automation_engine.start()
 
+    message_logger.client_provider = lambda: telegram_manager.client
+    if message_logger.config["enabled"]:
+        message_logger.start()
+
     for problem in settings.validate_production():
         logger.warning("Configuration: %s", problem)
     for note in settings.deployment_notes():
@@ -244,6 +282,8 @@ async def main():
         telegram_manager.client.add_event_handler(
             handle_incoming_telegram_message, events.NewMessage()
         )
+        telegram_manager.client.add_event_handler(_on_message_deleted, events.MessageDeleted())
+        telegram_manager.client.add_event_handler(_on_message_edited, events.MessageEdited())
         logger.info("Listening for messages on the MTProto connection.")
         telegram_task = asyncio.create_task(_telegram_reconnect_loop())
         if presence_service.enabled():
@@ -265,6 +305,7 @@ async def main():
         reminder_service.stop()
         presence_service.stop()
         automation_engine.stop()
+        message_logger.stop()
         stop_web_server()
 
         try:

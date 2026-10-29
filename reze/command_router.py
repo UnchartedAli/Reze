@@ -13,6 +13,7 @@ Responsibilities:
 """
 
 import asyncio
+import os
 import inspect
 import re
 import time
@@ -114,12 +115,19 @@ class CommandContext:
                 pass
         return await self.reply(text)
 
-    async def send_file(self, **kwargs):
-        """Send media through the authenticated client."""
+    async def send_file(self, file: Any = None, **kwargs):
+        """Send media through the authenticated client.
+
+        Telethon's signature is ``send_file(entity, file, *, ...)``: the chat must be
+        passed as the first positional argument (there is no ``chat_id`` keyword).
+        """
         if not hasattr(self.client, "send_file"):
             raise CommandExecutionError("Media delivery is unavailable: no Telegram client.")
-        kwargs.setdefault("chat_id", self.chat_id)
-        return await self.client.send_file(**kwargs)
+        entity = kwargs.pop("entity", None) or kwargs.pop("chat_id", None) or self.chat_id
+        kwargs.pop("chat_id", None)
+        if file is None:
+            raise CommandExecutionError("send_file() needs a file to send.")
+        return await self.client.send_file(entity, file, **kwargs)
 
     async def delete(self) -> None:
         if hasattr(self.message, "delete"):
@@ -347,10 +355,35 @@ class CommandRouter:
             cutoff = time.time() - 3600
             self._cooldowns = {k: v for k, v in self._cooldowns.items() if v >= cutoff}
 
+    @staticmethod
+    def public_commands_enabled() -> bool:
+        """``REZE_PUBLIC_COMMANDS=true`` restores the old behaviour (anyone may run commands)."""
+        return os.environ.get("REZE_PUBLIC_COMMANDS", "").strip().lower() in {"1", "true", "yes", "on"}
+
+    def is_authorized(self, message: Any) -> bool:
+        """
+        Only the account owner may trigger commands.
+
+        Strangers who type ``.something`` in a group must get *no* reaction at all
+        (no reply, no error, no "unknown command" hint), otherwise they assume the
+        userbot is talking to them. A message counts as the owner's when it is
+        outgoing from this account or its sender is ``REZE_OWNER_ID``.
+        """
+        if self.public_commands_enabled():
+            return True
+        if getattr(message, "out", False):
+            return True
+        return PermissionManager.is_owner(getattr(message, "sender_id", 0) or 0)
+
     async def handle_message(self, message: Any, client: Any) -> Optional[Any]:
         """Parse and execute a dot command if the message contains one."""
         text = getattr(message, "message", None) or getattr(message, "text", "") or ""
         if not text or not text.startswith(self.prefix):
+            return None
+
+        if not self.is_authorized(message):
+            self.denied_count += 1
+            logger.debug("Ignored a command-like message from non-owner %s", getattr(message, "sender_id", None))
             return None
 
         raw_cmd = text[len(self.prefix):].strip()
