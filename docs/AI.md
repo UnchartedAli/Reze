@@ -86,11 +86,75 @@ If a text-only model is configured, `.describe` fails with a clear message
 instead of pretending to see the image. Images are downscaled and re-encoded as
 JPEG before upload.
 
-## 6. Limitations
+## 6. AI agent and tool calling
 
-- No streaming, tool calling, embeddings or structured output in this release.
+`.agent` is a separate, **sensitive** feature (`ai_agent`, OFF by default). The
+model never executes anything directly:
+
+1. `.agent run <request>` asks the model for one JSON proposal
+   (`{"tool": "...", "args": {...}}`) using only the allowlisted tools.
+2. REZE parses the JSON strictly. Unknown tools, unknown fields, wrong types and
+   oversized strings are rejected; nothing is executed.
+3. A pending approval is stored with a random 6-digit code that expires after
+   15 minutes (`ai_approvals`).
+4. `.agent approve <code>` runs the tool **once**, as the owner, and writes an
+   audit row (`ai_tool_audit`). `.agent deny <code>` discards it.
+5. Turning `ai_agent` off invalidates pending approvals; an approval can never
+   be reused.
+
+Allowlisted tools in 3.0:
+
+| Tool | Arguments | Feature gate | Daily cap |
+| --- | --- | --- | --- |
+| `memory.save` | `content`, `tags` | `memory` | 10 |
+| `memory.search` | `query`, `limit` | `memory` | 20 |
+| `task.add` | `title`, `project`, `priority` | `projects` | 10 |
+| `timeline.add` | `title`, `body` | `timeline` | 10 |
+| `features.list` | — | none | 20 |
+| `budget.status` | — | none | 20 |
+
+Calls also count against `REZE_AI_DAILY_BUDGET_CALLS` and the per-run ceiling
+`REZE_AI_TOOL_MAX_CALLS`. `.agent history` shows the audit trail, `.agent budget`
+shows today's usage.
+
+Without a configured provider, `.agent` says "not configured" instead of
+simulating an agent.
+
+## 7. Model Council
+
+`.council <question>` asks the primary provider and up to two fallback members
+(`REZE_AI_FALLBACK=provider:model,provider:model`) and synthesizes one answer.
+It is honest about the result:
+
+- one member answering is reported as a single answer, not a consensus;
+- failed members are listed instead of being hidden;
+- at most three members are queried;
+- it requires `model_council` to be enabled (sensitive, OFF by default);
+- all members use the same `REZE_AI_API_KEY`, which is a documented limitation
+  for mixed providers.
+
+## 8. Insights, voice and documents
+
+- `.insights [days]` computes local statistics (tasks, focus, expenses, timeline)
+  without any network call. `.insights ai [days]` optionally asks the configured
+  provider for a narrative.
+- `.voice` (reply to a voice note, feature `voice_intelligence`) uploads the
+  audio to the configured provider for transcription, capped by
+  `REZE_VOICE_MAX_MB` (default 25) and `REZE_VOICE_MODEL` (default `whisper-1`).
+  The transcript is stored locally in `voice_notes`.
+- `.doc` (reply to a document, feature `document_intelligence`) extracts text
+  locally and indexes it in `search_index`; `.doc search` queries that index.
+
+All three say exactly which feature or credential is missing instead of
+returning a placeholder.
+
+## 9. Limitations
+
+- No streaming, embeddings or structured output in this release. Tool calling is
+  limited to the six allowlisted tools above.
 - Token counts are whatever the provider reports; Gemini reports
   `promptTokenCount`/`candidatesTokenCount`.
 - Prices and model availability change; Reze does not hardcode either.
 - A provider may still log prompts on its side — read its policy before sending
   private content.
+- The council uses one API key for every member.

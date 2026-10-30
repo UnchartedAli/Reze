@@ -3,7 +3,7 @@
 ## 1. Running the suite
 
 ```bash
-python -m unittest discover -s tests -v
+python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
 Requirements: Python 3.11+, `pip install -r requirements.txt`. No Telegram
@@ -49,9 +49,29 @@ singleton never touches your real database or session. It also provides:
 | Web panel | real HTTP: health, redirect, login, CSRF rejection/acceptance, escaping, headers, API auth, logout |
 | QR | BCH format/version words, Reed-Solomon vectors from the spec, matrix geometry, PNG output |
 | Automation | validation, CRUD, keyword execution, cooldown, outbound authorization, allowlist, recursion guard |
-| End-to-end command flows | `.sticker` (download → convert → upload), `.stickerpack` confirmation → real request, `.help`, `.aiinfo` |
+| REZE 3 features | default OFF on a fresh database, missing/unknown keys resolve false, sensitive confirmation, no cascade, restart does not auto-enable, migration preserves state, registry starts only enabled services |
+| Vault and backups | secret/file roundtrip, ciphertext does not contain plaintext, case-insensitive overwrite, wrong-key failure, locked vault, size limit, backup create/verify/restore, wrong restore code, corrupt backup |
+| AI tools | schema validation (unknown fields/types), feature gating, owner-only proposal/approval, deny writes nothing, single-use and expiring codes, feature revocation invalidates pending approvals |
+| Workflows | simulator validation and rendering, default OFF, new definitions disabled, manual run, idempotency duplicate, trigger validation, scheduler due, retry-then-success, restart recovery, explicit resume, cancel, cascade delete |
+| Localization | Arabic/Persian letter unification, digits, diacritics/bidi/ZWNJ, detection and RTL, Jalali conversions and ranges, language persistence/aliases, catalog parity |
+| Installer | secret masking, env merge preserves comments/order and is idempotent, backup only on change, validators, `--check`, no secrets printed |
+| End-to-end command flows | `.sticker` (download → convert → upload), `.stickerpack` confirmation → real request, `.help`, `.aiinfo`, optional-features panel toggle |
 
-## 4. What is *not* covered
+## 4. Current result
+
+Reference environment (Python 3.12, Windows, offline):
+
+```text
+Ran 378 tests in 82.645s
+
+OK (skipped=21)
+```
+
+The 21 skips are environment-dependent (Pillow/FFmpeg-specific paths and other
+optional dependencies), not failures. Re-run the suite on your machine after
+changing code; do not copy this number into a release claim without running it.
+
+## 5. What is *not* covered
 
 - Real Telegram API calls: no live sticker-set creation, message sending or
   login is exercised. Sticker requests are asserted through a fake client.
@@ -62,7 +82,7 @@ singleton never touches your real database or session. It also provides:
   browser (no JavaScript is used).
 - Load, soak and concurrency stress tests.
 
-## 5. Linting and type checks
+## 6. Linting and type checks
 
 The project ships a `[tool.ruff]` configuration. In the reference environment
 (offline, no package index) `ruff` could not be installed, so linting was not
@@ -76,7 +96,7 @@ ruff check .
 No type checker is configured. Adding `mypy` or `pyright` is a good next step;
 the code is annotated but not strictly typed.
 
-## 6. Development workflow
+## 7. Development workflow
 
 1. `git switch -c feature/<name>`
 2. Implement in small slices; keep the ASCII renderer and task manager as the

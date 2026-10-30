@@ -12,6 +12,8 @@ Reze is a **userbot**: it acts as your Telegram account. Treat the host, the
 | Telethon session file | `REZE_SESSION_PATH` | restrictive permissions are applied on connect when the OS supports it |
 | Panel password/hash | environment | the hash is PBKDF2-HMAC-SHA256 (120k iterations, per-password salt) |
 | AI provider key | environment | passed only to the selected provider |
+| `REZE_VAULT_KEY` | environment | never stored, logged or rendered; scrypt-derived AES-256-GCM key |
+| Bot Companion token | environment | sent only to the Telegram Bot API |
 | remove.bg key | environment | sent only to `api.remove.bg` |
 
 - `.env`, `*.session`, `data/*.db` and media scratch space are git-ignored.
@@ -74,10 +76,59 @@ Run third-party plugins only after reading their code.
 
 ## 4. Confirmations
 
-Consequential operations use one-time confirmation codes
-(`.stickerpack`, `.removebg`). A code is bound to one action, one chat and one
-user, expires after two minutes, and is consumed on first use. It cannot be
-replayed for a different operation.
+Consequential operations use one-time confirmation codes (`.stickerpack`,
+`.removebg`). A code is bound to one action, one chat and one user, expires after
+two minutes, and is consumed on first use. It cannot be replayed for a different
+operation.
+
+REZE 3 sensitive features add their own gates:
+
+- Enabling `vault`, `workflows`, `ai_agent`, `model_council`, `security_sentinel`,
+  `smart_inbox`, `voice_intelligence`, `document_intelligence`, `bot_companion`,
+  `random_reactions` or `background_monitoring` requires the literal word
+  `confirm` in Telegram, a checkbox/confirm field in the panel and an explicit
+  confirmation in the companion.
+- AI tool calls need a 6-digit approval code (15 minutes, single use, owner
+  only). Turning `ai_agent` off invalidates pending approvals.
+- Backup restore needs a 6-digit code compared with `hmac.compare_digest`, after
+  the backup has passed `PRAGMA integrity_check` and a safety copy of the live
+  database was created.
+- `.broadcast` and `.maintain apply` require their own confirmation words/codes.
+
+## 4a. Feature default-off policy
+
+Every optional feature and automation is disabled on a fresh install, after a
+migration, after a restart and after a configuration reset. There is no cascade:
+enabling `memory` never enables `ai_agent`, and enabling a feature never starts a
+service that belongs to another key. Missing or unknown feature values resolve to
+OFF. Background services are started at one choke point
+(`registry.start_all()`), which skips every service whose feature is not
+explicitly enabled.
+
+## 4b. Digital Vault and backups
+
+- Vault entries are AES-256-GCM ciphertext with a random 12-byte nonce per entry.
+- The key is scrypt-derived from `REZE_VAULT_KEY` (fallback: a non-default
+  `REZE_SECRET_KEY`). With neither set, the vault reports "locked" and stores
+  nothing.
+- Plaintext is never written to SQLite, logs or command output.
+- Names are unique case-insensitively; storing the same name updates one row.
+- Backups are SQLite copies made through the online backup API. Vault rows stay
+  encrypted inside them, but the rest of the database is plaintext: protect
+  `data/backups/`.
+- Losing the vault key is unrecoverable. There is no recovery key and no backdoor.
+
+## 4c. AI privacy
+
+- Prompts and responses are never logged; only provider, model, duration and
+  token counts are recorded.
+- AI tools are strictly allowlisted with typed arguments. The model proposes; it
+  never executes. Every call is audited in `ai_tool_audit`.
+- Daily budgets (`REZE_AI_DAILY_BUDGET_CALLS`) and per-run tool ceilings
+  (`REZE_AI_TOOL_MAX_CALLS`) bound cost and blast radius.
+- `.voice` and `.describe` upload content to the configured provider only when
+  you invoke them, and the response names the provider.
+- Fallback providers are opt-in and disclosed in response metadata.
 
 ## 5. Media handling
 
