@@ -13,6 +13,9 @@ Message Guard commands.
     .watch dest me|here|<chat_id>   where reports are delivered (default: Saved Messages)
     .watch archive on|off|clear     permanent local copy of deleted + timed media (never auto-deleted)
     .watch keep <hours|forever>     how long NOT-yet-reported copies are cached (1-720)
+    .watch find <text>              search the archive (newest first)
+    .watch show <id>                send one archived item to the destination
+    .watch export [json|csv|zip]    send the whole archive as a file (zip includes media)
     .watch list | status | clear
 """
 
@@ -81,7 +84,7 @@ def _chat_id(ctx: CommandContext, index: int = 1):
     name="watch",
     category=CATEGORY,
     description="Save deleted/edited messages of chosen chats to Saved Messages.",
-    usage=".watch <on|off|add|del|list|status|private|groups|edits|media|ttl|archive|own|dest|keep|clear>",
+    usage=".watch <on|off|add|del|list|status|private|groups|edits|media|ttl|archive|find|show|export|own|dest|keep|clear>",
     owner_only=True,
     aliases=["guard", "msglog"],
     examples=[".watch on", ".watch add", ".watch private on", ".watch dest me"],
@@ -89,7 +92,7 @@ def _chat_id(ctx: CommandContext, index: int = 1):
 async def watch_cmd(ctx: CommandContext):
     action = ctx.args[0].lower() if ctx.args else "status"
 
-    if action in ("status", "show"):
+    if action == "status":
         return await ctx.reply(ascii.frame("Message Guard", _status_lines()))
 
     if action in _TRUE | {"start"} or action in _FALSE | {"stop"}:
@@ -136,6 +139,44 @@ async def watch_cmd(ctx: CommandContext):
             lines.append(f"{chat_id}  {title}".rstrip())
         extras = [f"{_LABELS[k]}: {_flag(guard.config[k])}" for k in ("private", "groups")]
         return await ctx.reply(ascii.frame("Watched chats", (lines or ["(none)"]) + [""] + extras))
+
+    if action == "find":
+        query = " ".join(ctx.args[1:]).strip()
+        rows = guard.search_archive(query, limit=8)
+        if not rows:
+            return await ctx.reply(ascii.warning("No matches", ["Nothing in the archive matches that."]))
+        lines = []
+        for row in rows:
+            when = guard._stamp(row["saved_at"])[5:16]
+            who = (row["sender_name"] or "?")[:14]
+            what = (row["text"] or f"[{row['media_kind'] or 'media'}]").replace("\n", " ")[:28]
+            lines.append(f"#{row['id']} {when} {who}: {what}")
+        lines += ["", "Open one with: .watch show <id>"]
+        return await ctx.reply(ascii.frame(f"Archive ({len(rows)} shown)", lines))
+
+    if action == "show":
+        raw = ctx.args[1].lstrip("#") if len(ctx.args) > 1 else ""
+        if not raw.isdigit():
+            return await ctx.reply_usage(".watch show <id>   (ids come from .watch find)")
+        if not await guard.send_archived(ctx.client, int(raw)):
+            return await ctx.reply(ascii.warning("Not found", [f"No archived item #{raw}."]))
+        return await ctx.reply(ascii.success("Sent", [f"Item #{raw} was sent to the destination."]))
+
+    if action == "export":
+        import shutil
+        import tempfile
+
+        fmt = (ctx.args[1] if len(ctx.args) > 1 else "json").lower()
+        workdir = tempfile.mkdtemp(prefix="reze_export_")
+        try:
+            try:
+                path = guard.export_archive(workdir, fmt)
+            except ValueError as exc:
+                return await ctx.reply(ascii.error("Export failed", [str(exc)]))
+            await ctx.client.send_file(guard.destination(), path, caption="Reze archive export", force_document=True)
+            return await ctx.reply(ascii.success("Export sent", [f"Format: {fmt}", "Check the destination chat."]))
+        finally:
+            shutil.rmtree(workdir, ignore_errors=True)
 
     if action == "archive" and len(ctx.args) > 1 and ctx.args[1].lower() == "clear":
         removed = guard.clear_archive()

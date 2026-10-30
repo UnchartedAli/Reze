@@ -29,6 +29,7 @@ from reze.exceptions import (
 )
 from reze.logging_config import logger
 from reze.preferences import get_pref
+from reze.ai import budget
 from reze.ai.providers import (
     DEFAULT_MODELS,
     ProviderConfig,
@@ -152,6 +153,7 @@ class AIGateway:
     ) -> AIResult:
         """Send one completion request and normalize the result."""
         text = self._validate_prompt(prompt)
+        budget.check()
         base_config = self.config(provider, model)
         if max_tokens:
             base_config.max_output_tokens = max(16, int(max_tokens))
@@ -184,6 +186,13 @@ class AIGateway:
                     continue
                 raise
             result.fallback_used = index > 0
+            budget.record(
+                provider=result.provider,
+                model=result.model,
+                kind="vision" if image is not None else "chat",
+                prompt_tokens=int(result.usage.get("prompt_tokens", 0) or 0),
+                completion_tokens=int(result.usage.get("completion_tokens", 0) or 0),
+            )
             return result
 
         raise last_error or AIError("The AI request failed.")

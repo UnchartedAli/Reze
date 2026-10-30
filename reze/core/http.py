@@ -49,7 +49,8 @@ def _opener(allowed: Optional[Iterable[str]]):
     return urllib.request.build_opener(handler)
 
 
-def _request_sync(url, *, data=None, headers=None, timeout=15, allowed=None, max_bytes=MAX_TEXT_BYTES, method=None):
+def _request_sync(url, *, data=None, headers=None, timeout=15, allowed=None, max_bytes=MAX_TEXT_BYTES,
+                  method=None, accept_errors=False):
     if not host_allowed(url, allowed):
         raise HttpError("Only https:// links to supported sites are allowed.")
     req = urllib.request.Request(url, data=data, method=method)
@@ -68,6 +69,8 @@ def _request_sync(url, *, data=None, headers=None, timeout=15, allowed=None, max
     except HttpError:
         raise
     except urllib.error.HTTPError as exc:
+        if accept_errors:  # e.g. the Telegram Bot API explains 4xx errors in the JSON body
+            return exc.code, url, exc.read(max_bytes)
         raise HttpError(f"The server answered HTTP {exc.code}.") from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         raise HttpError(f"Network error: {getattr(exc, 'reason', exc)}") from exc
@@ -158,3 +161,33 @@ async def post_multipart(url, fields, file_field, filename, content, *, allowed=
         timeout=timeout, allowed=allowed, max_bytes=max_bytes, method="POST",
     )
     return resp.decode("utf-8", errors="replace").strip()
+
+
+def multipart_files(fields: Dict[str, str], files: Dict[str, Tuple[str, bytes, str]]) -> Tuple[bytes, str]:
+    """multipart/form-data with several files: ``files = {field: (filename, content, mime)}``."""
+    boundary = uuid.uuid4().hex
+    parts = []
+    for name, value in fields.items():
+        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())
+    for name, (filename, content, mime) in files.items():
+        safe = filename.replace('"', "").replace("\r", "").replace("\n", "")
+        parts.append((f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="{safe}"\r\n'
+                      f"Content-Type: {mime}\r\n\r\n").encode())
+        parts.append(content)
+        parts.append(b"\r\n")
+    parts.append(f"--{boundary}--\r\n".encode())
+    return b"".join(parts), f"multipart/form-data; boundary={boundary}"
+
+
+async def post_form(url: str, fields: Dict[str, str], files: Optional[Dict[str, Tuple[str, bytes, str]]] = None, *,
+                    allowed=None, timeout: int = 60, max_bytes: int = 1024 * 1024) -> Tuple[int, bytes]:
+    """POST form fields (+ optional files). Returns ``(status, body)`` even for 4xx answers."""
+    if files:
+        body, ctype = multipart_files(fields, files)
+    else:
+        body, ctype = urllib.parse.urlencode(fields).encode(), "application/x-www-form-urlencoded"
+    status, _, raw = await asyncio.to_thread(
+        _request_sync, url, data=body, headers={"Content-Type": ctype}, timeout=timeout,
+        allowed=allowed, max_bytes=max_bytes, method="POST", accept_errors=True,
+    )
+    return status, raw

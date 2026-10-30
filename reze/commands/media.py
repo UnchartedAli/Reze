@@ -45,6 +45,7 @@ async def _run_job(
     caption: str = "",
     document: bool = False,
     send_kwargs=None,
+    deliver=None,
 ) -> None:
     """
     Download replied media, run *worker* in the task manager, send the result.
@@ -105,6 +106,9 @@ async def _run_job(
             ),
         )
         try:
+            if deliver is not None:  # custom delivery (e.g. a real sticker from the owner's pack)
+                await deliver(ctx, output)
+                return None
             extra = send_kwargs(output) if callable(send_kwargs) else (send_kwargs or {})
             await ctx.send_file(
                 file=output,
@@ -197,18 +201,41 @@ async def sticker_cmd(ctx: CommandContext):
         record.update(90, "validating")
         return output
 
-    def sticker_attributes(output):
-        from telethon.tl.types import DocumentAttributeSticker, InputStickerSetEmpty
+    async def deliver(ctx, output):
+        from reze.media import stickerbot
 
-        return {"attributes": [DocumentAttributeSticker(alt=emoji[:8], stickerset=InputStickerSetEmpty())]}
+        video = output.lower().endswith(".webm")
+        if stickerbot.token():
+            me = await ctx.client.get_me()
+            try:
+                name = await stickerbot.add_to_personal_pack(me.id, output, emoji[:8], video)
+                document = await stickerbot.fetch_last_sticker(ctx.client, name)
+            except stickerbot.StickerBotError as exc:
+                return await ctx.reply(ascii.error("Sticker failed", [str(exc)]))
+            await ctx.send_file(file=document, reply_to=getattr(ctx.message, "reply_to_msg_id", None))
+            await ctx.reply(ascii.success("Sticker added", ["Saved to your Reze sticker pack."]))
+            # the link goes out as plain text: inside a frame a long URL would be wrapped and break
+            return await ctx.reply(f"https://t.me/addstickers/{name}")
+
+        # No bot configured: upload the file with sticker attributes. Telegram may still show it
+        # as a file, which is why a real pack through REZE_STICKER_BOT_TOKEN is recommended.
+        from telethon.tl.types import DocumentAttributeImageSize, DocumentAttributeSticker, InputStickerSetEmpty
+
+        attributes = [DocumentAttributeSticker(alt=emoji[:8], stickerset=InputStickerSetEmpty())]
+        if not video:
+            attributes.insert(0, DocumentAttributeImageSize(w=512, h=512))
+        await ctx.send_file(file=output, force_document=False, attributes=attributes,
+                            mime_type="video/webm" if video else "image/webp")
+        return await ctx.reply(ascii.warning("Sent without a sticker pack", [
+            "If it shows up as a file, set REZE_STICKER_BOT_TOKEN",
+            "(create a bot with @BotFather, press Start in it) to get real stickers."]))
 
     return await _run_job(
         ctx,
         "sticker",
         worker,
         title="Sticker conversion",
-        document=True,
-        send_kwargs=sticker_attributes,
+        deliver=deliver,
     )
 
 

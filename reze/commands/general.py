@@ -11,6 +11,7 @@ from reze import __author__, __channel__, __channel_url__, __version__
 from reze.command_router import CommandContext, router
 from reze.config import settings
 from reze.database import db
+from reze.localization import get_language, t
 from reze.logging_config import LOG_BUFFER
 from reze.telegram_client import telegram_manager
 from reze.ui import ascii
@@ -34,27 +35,30 @@ async def help_cmd(ctx: CommandContext):
         if command is not None:
             lines = [
                 f"Command: {router.prefix}{command.name}",
-                f"Category: {command.category}",
-                f"Usage: {command.usage}",
+                f"{t('common.category', 'Category')}: {command.category}",
+                f"{t('router.usage', 'Usage')}: {command.usage}",
                 f"Description: {command.description}",
             ]
             if command.aliases:
-                lines.append("Aliases: " + ", ".join(router.prefix + alias for alias in command.aliases))
+                lines.append(
+                    f"{t('help.aliases', 'Aliases')}: "
+                    + ", ".join(router.prefix + alias for alias in command.aliases)
+                )
             if command.examples:
-                lines.append("Examples:")
+                lines.append(f"{t('help.examples', 'Examples')}:")
                 lines.extend(f"  {example}" for example in command.examples)
             access = []
             if command.owner_only:
-                access.append("owner only")
+                access.append(t("help.owner", "owner") + " only")
             if command.admin_only:
-                access.append("group admins")
+                access.append(t("help.admin", "group admins"))
             if command.group_only:
-                access.append("groups only")
+                access.append(t("help.group", "groups only"))
             if command.cooldown:
                 access.append(f"{command.cooldown}s cooldown")
             if access:
-                lines.append("Restrictions: " + ", ".join(access))
-            return await ctx.reply(ascii.frame("Command help", lines))
+                lines.append(f"{t('help.access', 'Access')}: " + ", ".join(access))
+            return await ctx.reply(ascii.frame(t("help.command_help", "Command help"), lines))
 
         for category, commands in router.categories().items():
             if category.lower() == target:
@@ -63,22 +67,24 @@ async def help_cmd(ctx: CommandContext):
 
     categories = router.categories()
     summary = [
-        f"{name}: {len(commands)} commands"
+        t("help.category_line", f"{name}: {len(commands)} commands", name=name, count=len(commands))
         for name, commands in categories.items()
     ]
     body = [
         f"Version: {__version__}",
         f"Prefix: {router.prefix}",
-        f"Commands: {len(router.commands)}",
+        f"{t('help.count', f'{len(router.commands)} commands', count=len(router.commands))}",
+        f"Language: {get_language()}",
         "",
         *summary,
         "",
-        "Use .help <category> for the command list,",
-        "or .help <command> for usage and examples.",
+        t("help.hint", "Use .help <category> for the command list,"),
+        t("help.hint2", "or .help <command> for usage and examples."),
+        t("features.hint", "Every optional feature is OFF by default. See .features."),
     ]
     return await ctx.reply(
         ascii.frame(
-            "Command index",
+            t("help.title", "Command index"),
             body,
             footer=f"{__author__} · {__channel__}",
         )

@@ -70,7 +70,7 @@ async def setonlinepermanently_cmd(ctx: CommandContext):
         if not applied:
             lines.insert(0, "Saved. The status will refresh once Telegram is connected.")
         return await ctx.reply(
-            ascii.success("Always online enabled", lines, footer="REZE 2.0 presence service")
+            ascii.success("Always online enabled", lines, footer="REZE 3.0 presence service")
         )
 
     if action in _OFF_VALUES:
