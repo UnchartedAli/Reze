@@ -228,7 +228,8 @@ class RouterTests(unittest.TestCase):
 
         unknown = support.DummyMessage(text=".nope")
         support.run(self.router.handle_message(unknown, support.DummyClient()))
-        self.assertIn("not a registered command", unknown.replies[0])
+        flat = __import__("re").sub(r"[^a-z0-9]+", " ", unknown.replies[0].lower())
+        self.assertIn("not a registered command", flat)
 
     def test_long_reply_is_split(self):
         @self.router.register(name="long")

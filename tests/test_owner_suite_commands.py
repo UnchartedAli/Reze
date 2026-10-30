@@ -52,7 +52,8 @@ def _ensure_telethon():
                        DocumentAttributeSticker=type("DocumentAttributeSticker", (Req,), {}),
                        InputStickerSetEmpty=type("InputStickerSetEmpty", (Req,), {}),
                        DocumentAttributeAudio=type("DocumentAttributeAudio", (Req,), {}),
-                       DocumentAttributeVideo=type("DocumentAttributeVideo", (Req,), {}))
+                       DocumentAttributeVideo=type("DocumentAttributeVideo", (Req,), {}),
+                       DocumentAttributeImageSize=type("DocumentAttributeImageSize", (Req,), {}))
     tl = module("telethon.tl", functions=functions, types=types_mod)
     module("telethon", errors=module("telethon.errors", FloodWaitError=FloodWaitError), tl=tl)
     sys.modules["telethon.tl.functions"] = functions

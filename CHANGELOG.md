@@ -3,6 +3,115 @@
 All notable changes to **Reze** are documented here.
 Developer: **UnchartedAli** · Channel: **[@yamods](https://t.me/yamods)**
 
+## [3.0.0] — 2026-10-30
+
+REZE 3.0 turns the userbot into a personal digital operating system without
+breaking 2.x behaviour. Everything optional is **OFF by default**, the command
+surface grows to 172 commands, and the database migrates in place.
+
+### Added — personal OS services
+- **Persistent memory** (`memory`): `.memory add/search/show/forget/pin/archive`,
+  stored in SQLite and usable as AI context when enabled.
+- **Life Graph** (`life_graph`): entities and typed relations with `.graph`.
+- **Personal CRM** (`crm`): contacts, interaction log, birthdays, stale contacts.
+- **Decision journal** (`decisions`): options, expected outcome, review date and
+  outcome review.
+- **Focus Mode** (`focus`): timed sessions, statistics and timeline events.
+- **Timeline** (`timeline`): one chronological event stream.
+- **Writing DNA** (`writing_dna`): samples, style profile, comparison of new text.
+- **Projects, tasks, expenses** (`projects`, `expenses`): local tracker with
+  priority, due dates and monthly summaries.
+- **Smart Inbox** (`smart_inbox`): local classification and rules; never replies.
+- **Universal Search** (`universal_search`): FTS5 index over memories, contacts,
+  decisions, tasks, documents and timeline; bounded `LIKE` fallback when the
+  SQLite build lacks FTS5.
+- **Voice Intelligence** (`voice_intelligence`): transcription of replied voice
+  notes through the configured AI provider.
+- **Document Intelligence** (`document_intelligence`): text extraction and local
+  indexing.
+- **Insight Engine** (`insights`): local weekly statistics with an optional AI
+  narrative.
+
+### Added — security and storage
+- **Digital Vault** (`vault`): AES-256-GCM entries, scrypt-derived key
+  (`REZE_VAULT_KEY`), case-insensitive names, export, honest "locked" state.
+- **Security Sentinel** (`security_sentinel`): local security checks and findings.
+- **Self-maintenance** (`self_maintenance`): integrity, backup age, retention
+  plan applied only with `.maintain apply confirm`.
+- **Backups** (`.backup`): SQLite online backup, verify, restore with a 6-digit
+  constant-time code and a pre-restore safety copy, prune.
+- **Bot Companion** (`bot_companion`): optional owner-only Telegram bot front end
+  (`/features`, `/enable <key> [confirm]`, `/disable`, `/language`, `/status`).
+- **Retention** for service history and audit rows (`REZE_RETENTION_DAYS`,
+  `REZE_AUDIT_RETENTION_DAYS`), never applied silently.
+
+### Added — AI
+- **AI agent / tool calling** (`ai_agent`): six allowlisted tools, strict JSON
+  schema validation, 6-digit single-use approvals (15 minutes), owner-only
+  execution, audit rows, daily budgets and per-run ceilings.
+- **Model Council** (`model_council`): up to three members, honest "not a
+  consensus" fallback, failed members listed.
+- Provider adapters now share one daily budget (`REZE_AI_DAILY_BUDGET_CALLS`).
+
+### Added — automation
+- **Persistent workflows** (`workflows`): ordered steps, strict validation, dry
+  run simulator, manual/interval/daily triggers, retries, idempotency keys, run
+  history, cancellation and explicit resume after a restart. Created disabled.
+- **Random reactions** (`random_reactions`): rare reactions in listed chats only.
+
+### Added — platform
+- **Feature store**: 23 optional keys, all OFF by default, sensitive keys require
+  `confirm`, no cascade, missing values resolve false, audit trail.
+- **Service registry and event bus** (`reze/core/registry.py`):
+  `start_all()` starts only enabled features; failures are isolated.
+- **Versioned migrations**: schema v3 (23 service tables) and v4 (FTS5 search)
+  applied once, transactionally, recorded in `schema_migrations`; append-only.
+- **Localization**: English/Persian catalogs (124 keys, parity), Persian
+  normalization, RTL wrapping, Jalali date formatting and `.language`.
+- **Guided installer** (`python -m reze.installer`, `reze-install`): eight-step
+  wizard, masked secrets, validation, idempotent `.env` merge with timestamped
+  backups, `--check`/`--non-interactive`/`--yes`/`--no-menu`, post-install menu
+  with every feature OFF.
+- **Docs**: `docs/COMMANDS.md` (all 172 commands), `INSTALLATION.md`,
+  `CONFIGURATION.md`, `DATABASE.md`, `LOCALIZATION.md`,
+  `REZE_3_ARCHITECTURE.md`, Persian `README.fa.md`; rewritten `README.md`.
+- **Tests**: REZE 3 suites for default-off policy, feature store, vault,
+  backups, AI approvals, workflows, localization/Jalali and the installer. Full
+  suite: 378 tests, 0 failures, 21 skipped.
+
+### Changed
+- Version metadata is `3.0.0` in `reze/__init__.py`, `pyproject.toml` and the
+  banner; codename `DIGITAL HORIZON`.
+- `cryptography>=42` is now a declared dependency (vault and encrypted material).
+- The product is bilingual again: English is the source catalog, Persian is a
+  full catalog with RTL replies.
+- `.features` and the panel are the only supported switches for optional
+  behaviour; `.config` handles preferences only.
+- Documentation states explicitly that plugins are **not** sandboxed.
+
+### Fixed
+- `FeatureStore.disable()` returned `False` on success.
+- Vault stored duplicate rows for names differing only in case.
+- A workflow that succeeded after a retry could remain marked failed.
+- Installer could prompt in non-interactive mode and dropped an existing
+  companion token.
+- `write_env` created backups even when nothing changed; unknown keys were
+  dropped during merge.
+- Cross-test pollution from the shared Message Guard singleton.
+
+### Security
+- Optional features are off by default on fresh install, after migration, after
+  restart and after a config reset; sensitive features require confirmation.
+- Credentials, session strings and the vault key are never logged or rendered.
+- AI tool execution is allowlisted, approved, audited and budgeted.
+- Backup restore is code-gated and verified before replacing the live database.
+
+### Known limitations
+Animated/video sticker sets are still not implemented, digests/search are
+bounded scans, FTS5 depends on the SQLite build, workflows are linear, and
+plugins remain in-process without an OS sandbox. See
+`docs/KNOWN_LIMITATIONS.md`.
+
 ## [2.1.0] — Unreleased
 
 ### Added
@@ -26,6 +135,11 @@ Developer: **UnchartedAli** · Channel: **[@yamods](https://t.me/yamods)**
 - **Message Guard: timed media.** Self-destructing (timer / view-once) photos, videos and voice notes in watched chats are copied to Saved Messages as soon as they arrive. `.watch ttl on|off`; on by default for watched chats.
 
 - **Permanent archive:** deleted messages and timed media that were delivered are also kept locally (metadata in SQLite, files in `data/msglog/archive/`) and are never purged automatically. `.watch archive on|off|clear`, `.watch keep forever`.
+
+- **Real stickers:** `.sticker`, `.stickerpack` and `.addsticker` now use a Bot API backend (`REZE_STICKER_BOT_TOKEN`): the sticker is added to your personal pack and re-sent as a genuine Telegram sticker. Without a token `.sticker` still uploads the file with sticker attributes (Telegram may show it as a file).
+- **AFK mode:** `.afk`, `.back` - one auto-reply per person, missed-message log, optional timer and auto-off.
+- **Alerts:** `.alerts` - group mentions/replies and keywords are forwarded to Saved Messages with a link, rate-limited and de-duplicated.
+- **Archive tools:** `.watch find`, `.watch show`, `.watch export json|csv|zip`.
 
 ### Fixed
 - `CommandContext.send_file` passed the chat as a `chat_id` keyword, but

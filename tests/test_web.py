@@ -160,6 +160,48 @@ class PanelTests(unittest.TestCase):
         response, _ = self.request("/", cookie=cookie)
         self.assertEqual(response.status, 302)
 
+    def test_optional_features_page_and_sensitive_toggle(self):
+        from reze.features import features
+
+        features.disable("vault")
+        try:
+            cookie = self.login()
+            _, settings_page = self.request("/settings", cookie=cookie)
+            self.assertIn("Optional features", settings_page)
+            self.assertIn("vault", settings_page)
+            self.assertIn("OFF", settings_page)
+            token = CSRF_RE.search(settings_page).group(1)
+
+            # Sensitive features need the explicit confirmation checkbox.
+            response, _ = self.request(
+                "/features/toggle",
+                "POST",
+                {"csrf_token": token, "key": "vault", "action": "enable"},
+                cookie=cookie,
+            )
+            self.assertEqual(response.status, 302)
+            self.assertFalse(features.is_enabled("vault"))
+
+            response, _ = self.request(
+                "/features/toggle",
+                "POST",
+                {"csrf_token": token, "key": "vault", "action": "enable", "confirm": "1"},
+                cookie=cookie,
+            )
+            self.assertEqual(response.status, 302)
+            self.assertTrue(features.is_enabled("vault"))
+
+            response, _ = self.request(
+                "/features/toggle",
+                "POST",
+                {"csrf_token": token, "key": "vault", "action": "disable"},
+                cookie=cookie,
+            )
+            self.assertEqual(response.status, 302)
+            self.assertFalse(features.is_enabled("vault"))
+        finally:
+            features.disable("vault")
+
     def test_plugin_and_task_pages_render(self):
         cookie = self.login()
         for path in ("/plugins", "/tasks", "/automations", "/groups", "/filters", "/security", "/profile", "/logs"):

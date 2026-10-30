@@ -1,4 +1,4 @@
-# REZE 2.0 runtime dependencies.
+# REZE 3.0 runtime dependencies.
 # FFmpeg is a *system* dependency (not a Python package) and is only needed for
 # video/audio commands: https://ffmpeg.org/download.html
 telethon>=1.34.0
@@ -8,5 +8,7 @@ python-dotenv>=1.0.0
 python-socks[asyncio]>=2.4.0
 # Ensures IANA timezones work in slim Docker images and on Windows
 tzdata>=2024.1
+# AES-256-GCM for the Digital Vault, encrypted backups and secrets at rest
+cryptography>=42.0.0
 # Image conversion and static WebP sticker generation
 Pillow>=10.0.0

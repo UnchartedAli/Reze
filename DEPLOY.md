@@ -1,6 +1,6 @@
 # Deployment guide
 
-REZE 2.0 runs as a single Python process that serves both the Telegram userbot
+REZE 3.0 runs as a single Python process that serves both the Telegram userbot
 and the web panel. This guide covers a VPS, Docker, and managed platforms
 (Render, Railway, Koyeb, Fly.io).
 
@@ -99,9 +99,9 @@ The repository ships a `Dockerfile` and `docker-compose.yml` as a starting point
 commands:
 
 ```bash
-docker build -t reze:2.0.0 .
+docker build -t reze:3.0.0 .
 docker run -d --name reze --env-file .env \
-  -v reze-data:/app/data -p 127.0.0.1:8080:8080 reze:2.0.0
+  -v reze-data:/app/data -p 127.0.0.1:8080:8080 reze:3.0.0
 ```
 
 Behind a reverse proxy, set `REZE_WEB_TRUST_PROXY=true` so cookies become

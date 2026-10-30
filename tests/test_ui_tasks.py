@@ -16,9 +16,11 @@ from reze.ui.themes import THEMES, theme_names
 
 class AsciiEngineTests(unittest.TestCase):
     def test_banner_contains_identity(self):
+        from reze import __version__
+
         banner = ascii.banner("CYBER")
-        self.assertIn("PERSONAL TELEGRAM OS", banner)
-        self.assertIn("2.0.0", banner)
+        self.assertIn("PERSONAL DIGITAL OS", banner)
+        self.assertIn(__version__, banner)
         self.assertNotIn("\x1b", banner)
 
     def test_frames_are_rectangular(self):

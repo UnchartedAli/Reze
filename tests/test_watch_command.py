@@ -14,6 +14,13 @@ def _reset():
                  edits=True, media=True, ttl=True, archive=True, own=False, retention_hours=48)
 
 
+def _flat(text):
+    """Frames uppercase titles and wrap lines; compare on letters and digits."""
+    import re
+
+    return re.sub(r"[^a-z0-9|\-]+", " ", str(text).lower())
+
+
 class WatchCommandTests(unittest.TestCase):
     def setUp(self):
         _reset()
@@ -39,7 +46,7 @@ class WatchCommandTests(unittest.TestCase):
         self.call("add")
         self.call("add", "-100123")
         self.assertEqual(guard.config["chats"], [-100777, -100123])
-        self.assertIn("-100777", self.call("list"))
+        self.assertIn("-100777", _flat(self.call("list")))
         self.call("del")
         self.assertEqual(guard.config["chats"], [-100123])
         self.assertIn("was not in the list", self.call("del", "555"))
@@ -54,7 +61,7 @@ class WatchCommandTests(unittest.TestCase):
         self.assertFalse(guard.config["ttl"])
         self.call("ttl", "on")
         self.assertTrue(guard.config["ttl"])
-        self.assertIn("Invalid arguments", self.call("private", "maybe"))
+        self.assertIn("invalid arguments", _flat(self.call("private", "maybe")))
 
     def test_destination_and_retention(self):
         self.call("dest", "here")
@@ -65,16 +72,16 @@ class WatchCommandTests(unittest.TestCase):
         self.assertEqual(guard.config["retention_hours"], 72)
         self.call("keep", "forever")
         self.assertEqual(guard.config["retention_hours"], 0)
-        self.assertIn("Invalid arguments", self.call("keep", "0"))
-        self.assertIn("Invalid arguments", self.call("dest", "nowhere"))
+        self.assertIn("never auto-deleted", _flat(self.call("keep", "0")))
+        self.assertIn("dest me|here", _flat(self.call("dest", "nowhere")))
 
     def test_archive_toggle_and_clear(self):
         self.call("archive", "off")
         self.assertFalse(guard.config["archive"])
         self.call("archive", "on")
         self.assertTrue(guard.config["archive"])
-        self.assertIn("Archive cleared", self.call("archive", "clear"))
-        self.assertIn("Archive:", self.call("status"))
+        self.assertIn("archive cleared", _flat(self.call("archive", "clear")))
+        self.assertIn("archive 0 items", _flat(self.call("status")))
 
     def test_command_is_owner_only(self):
         from reze.command_router import router
