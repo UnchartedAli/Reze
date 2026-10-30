@@ -21,7 +21,7 @@ from reze.ui import ascii
 MANIFEST = {
     "name": "Example Plugin",
     "id": "example",
-    "version": "2.0.0",
+    "version": "3.0.0",
     "description": "Reference plugin: themed greeting and a safe arithmetic calculator.",
     "author": "UnchartedAli",
     "source": "built-in",
@@ -95,7 +95,7 @@ async def hello_cmd(ctx: CommandContext):
                 f"Greeting: {greeting}",
                 "Manifest, permissions and settings are validated by the plugin manager.",
             ],
-            footer="Plugin: example v2.0.0",
+            footer="Plugin: example v3.0.0",
         )
     )
 

@@ -1,5 +1,5 @@
 """
-Reze 2.0 — Personal Telegram Operating System.
+Reze 3.0 — Your Personal Digital Operating System.
 
 A Telethon userbot platform with an Extreme-ASCII message engine, a media
 studio, a multi-provider AI gateway, an automation engine, personal knowledge
@@ -9,8 +9,8 @@ Developed and maintained by UnchartedAli.
 Official Telegram channel: @yamods
 """
 
-__version__ = "2.0.0"
-__codename__ = "TERMINAL BLOOM"
+__version__ = "3.0.0"
+__codename__ = "DIGITAL HORIZON"
 __author__ = "UnchartedAli"
 __channel__ = "@yamods"
 __channel_url__ = "https://t.me/yamods"

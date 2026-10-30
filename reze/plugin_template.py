@@ -25,7 +25,7 @@ MANIFEST = {
     "requires": [],                 # Python modules that must be installed
     "optional_requires": [],        # used when available, never required
     "permissions": ["telegram.message"],
-    "min_reze_version": "2.0.0",
+    "min_reze_version": "3.0.0",
     "config": {
         "response": {
             "type": "string",

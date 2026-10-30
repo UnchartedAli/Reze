@@ -21,6 +21,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from reze.config import settings
 from reze.exceptions import CommandExecutionError, DuplicateCommandError
+from reze.localization import t
 from reze.logging_config import logger
 from reze.permissions import PermissionManager
 from reze.ui import ascii
@@ -95,10 +96,10 @@ class CommandContext:
 
     async def reply_usage(self, note: str = "") -> Any:
         """Render a usage hint for the current command."""
-        body = [f"Usage: {self.usage}"]
+        body = [f"{t('router.usage', 'Usage')}: {self.usage}"]
         if note:
             body.append(note)
-        return await self.reply(ascii.warning("Invalid arguments", body))
+        return await self.reply(ascii.warning(t("common.invalid_args", "Invalid arguments"), body))
 
     async def reply_error(self, message: str, detail: str = "") -> Any:
         body = [message]
@@ -422,20 +423,31 @@ class CommandRouter:
             if not can_moderate:
                 self.denied_count += 1
                 return await ctx.reply(
-                    ascii.warning("Not allowed", ["You need group admin rights for this command."])
+                    ascii.warning(
+                        t("router.not_allowed", "Not allowed"),
+                        [t("router.admin_needed", "You need group admin rights for this command.")],
+                    )
                 )
 
         # 3. Group-only commands.
         is_group = bool(getattr(message, "is_group", False) or (chat_id and chat_id < 0))
         if command.group_only and not is_group:
-            return await ctx.reply(ascii.warning("Groups only", ["Run this command inside a group."]))
+            return await ctx.reply(
+                ascii.warning(
+                    t("router.groups_only", "Groups only"),
+                    [t("router.group_needed", "Run this command inside a group.")],
+                )
+            )
 
         # 4. Cooldowns protect Telegram rate limits on expensive commands.
         if sender_id and command.cooldown:
             remaining = self._cooldown_remaining(command, sender_id)
             if remaining:
                 return await ctx.reply(
-                    ascii.warning("Slow down", [f"Try .{command.name} again in {remaining}s."])
+                    ascii.warning(
+                        t("router.slow_down", "Slow down"),
+                        [t("router.retry_in", f"Try again in {remaining}s.", seconds=remaining)],
+                    )
                 )
             self._prune_cooldowns()
 
@@ -457,8 +469,8 @@ class CommandRouter:
             detail = ascii.sanitize(str(exc))[:300]
             return await ctx.reply(
                 ascii.error(
-                    f".{command.name} failed",
-                    [detail] if detail else ["The command raised an unexpected error."],
+                    t("router.failed", "Command failed") + f" · .{command.name}",
+                    [detail] if detail else [t("error.generic", "The command raised an unexpected error.")],
                 )
             )
 
@@ -466,10 +478,10 @@ class CommandRouter:
         """Tell a user about a typo without leaking the full command list."""
         chat_id = getattr(message, "chat_id", 0)
         hint = ascii.warning(
-            "Unknown command",
+            t("router.unknown", "Unknown command"),
             [
-                f"'.{trigger}' is not a registered command.",
-                f"Run {self.prefix}help to list available commands.",
+                t("router.not_registered", f"'.{trigger}' is not a registered command."),
+                t("router.run_help", f"Run {self.prefix}help to list available commands."),
             ],
         )
         try:

@@ -26,6 +26,8 @@ from reze import __version__
 from reze.automation.engine import AutomationError, automation_engine
 from reze.command_router import router
 from reze.config import settings
+from reze.features import FeatureConfirmationRequired, feature_spec, features
+from reze.localization import LANGUAGES, get_language
 from reze.core.tasks import task_manager
 from reze.database import db
 from reze.logging_config import LOG_BUFFER, logger
@@ -329,6 +331,8 @@ class RezePanelHandler(BaseHTTPRequestHandler):
         return {
             "prefs": all_prefs(),
             "themes": sorted(THEMES),
+            "languages": LANGUAGES,
+            "features": features.snapshot(language=get_language()),
             "limits": {
                 "concurrency": settings.task_concurrency,
                 "queue": settings.task_queue_limit,
@@ -365,6 +369,8 @@ class RezePanelHandler(BaseHTTPRequestHandler):
             return self.redirect("/login", self.session_cookie("", max_age=0))
         if path == "/settings/save":
             return self.handle_settings_save(form, session)
+        if path == "/features/toggle":
+            return self.handle_feature_toggle(form)
         if path == "/plugins/toggle":
             return self.handle_plugin_toggle(form)
         if path == "/tasks/cancel":
@@ -442,6 +448,24 @@ class RezePanelHandler(BaseHTTPRequestHandler):
             return self.page("Settings", content, "settings", status=400)
         router.prefix = all_prefs().get("prefix", router.prefix)
         return self.redirect("/settings?saved=1")
+
+    def handle_feature_toggle(self, form: dict):
+        key = form.get("key", [""])[0].strip().lower()
+        action = form.get("action", [""])[0].strip().lower()
+        confirmed = form.get("confirm", [""])[0].strip().lower() in {"1", "on", "yes"}
+        try:
+            feature_spec(key)
+            if action == "enable":
+                features.enable(key, confirmed=confirmed)
+            elif action == "disable":
+                features.disable(key)
+            else:
+                raise ValueError("Unknown action")
+        except FeatureConfirmationRequired:
+            logger.info("Panel refused to enable sensitive feature %s without confirmation", key)
+        except (KeyError, ValueError) as exc:
+            logger.warning("Feature toggle failed for %s: %s", key, exc)
+        return self.redirect("/settings#features")
 
     def handle_plugin_toggle(self, form: dict):
         name = form.get("name", [""])[0]

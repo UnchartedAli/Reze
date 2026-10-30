@@ -7,8 +7,9 @@ Manages schema migrations, connection pooling, and data persistence safely.
 import os
 import sqlite3
 import tempfile
+from contextlib import contextmanager
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 from reze.config import settings
 from reze.logging_config import logger
 
@@ -49,6 +50,44 @@ class Database:
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA foreign_keys=ON;")
         return conn
+
+    @contextmanager
+    def connection(self):
+        """Context manager that commits, rolls back and always closes."""
+        conn = self.get_connection()
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def execute(self, sql: str, params: Sequence[Any] = ()) -> int:
+        """Run one statement and return ``lastrowid`` (or ``rowcount``)."""
+        with self.connection() as conn:
+            cursor = conn.execute(sql, params)
+            return int(cursor.lastrowid or cursor.rowcount or 0)
+
+    def query(self, sql: str, params: Sequence[Any] = ()) -> List[Dict[str, Any]]:
+        with self.connection() as conn:
+            return [dict(row) for row in conn.execute(sql, params).fetchall()]
+
+    def query_one(self, sql: str, params: Sequence[Any] = ()) -> Optional[Dict[str, Any]]:
+        with self.connection() as conn:
+            row = conn.execute(sql, params).fetchone()
+            return dict(row) if row else None
+
+    @property
+    def schema_version(self) -> int:
+        """Current ``PRAGMA user_version`` (migration level)."""
+        try:
+            with self.get_connection() as conn:
+                row = conn.execute("PRAGMA user_version").fetchone()
+                return int(row[0]) if row else 0
+        except sqlite3.Error:
+            return 0
 
     def _init_db(self):
         """Create tables if they do not exist."""
@@ -267,10 +306,21 @@ class Database:
             VALUES (1, 0, 0);
             """)
 
-            cursor.execute("PRAGMA user_version = 2;")
-
             conn.commit()
-            logger.debug("Database initialized successfully at %s", self.db_path)
+
+            # Versioned, incremental migrations (REZE 3). The baseline above is
+            # the REZE 2 schema; migrations only ever add to it.
+            from reze.core.migrations import run_migrations
+            from reze.migrations import MIGRATIONS
+
+            applied = run_migrations(conn, MIGRATIONS)
+            if applied:
+                logger.info("Applied database migrations: %s", ", ".join(str(v) for v in applied))
+            logger.debug(
+                "Database initialized successfully at %s (schema v%d)",
+                self.db_path,
+                self.schema_version,
+            )
 
     # Helper methods for clean database operations
     def get_profile_settings(self) -> Dict[str, Any]:

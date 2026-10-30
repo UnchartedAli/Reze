@@ -149,6 +149,35 @@ class Settings(BaseModel):
     clock_interval_minutes: int = Field(default=1, alias="REZE_CLOCK_INTERVAL_MINUTES")
     default_prefix: str = Field(default=".", alias="REZE_DEFAULT_PREFIX")
 
+    # --------------------------------------------------- REZE 3: localization
+    # Interface language: en (English) or fa (Persian). The preference store
+    # overrides this at runtime; both default to English.
+    language: str = Field(default="en", alias="REZE_LANGUAGE")
+
+    # ----------------------------------------------- REZE 3: vault & retention
+    # Used to derive the AES-GCM key for the Digital Vault. When empty the key
+    # is derived from REZE_SECRET_KEY. Never printed or logged.
+    vault_key: str = Field(default="", alias="REZE_VAULT_KEY")
+    retention_days: int = Field(default=365, alias="REZE_RETENTION_DAYS")
+    audit_retention_days: int = Field(default=180, alias="REZE_AUDIT_RETENTION_DAYS")
+
+    # ------------------------------------------------- REZE 3: AI usage budget
+    ai_daily_budget_calls: int = Field(default=200, alias="REZE_AI_DAILY_BUDGET_CALLS")
+    ai_tool_max_calls: int = Field(default=20, alias="REZE_AI_TOOL_MAX_CALLS")
+
+    # ------------------------------------------- REZE 3: voice transcription
+    # Reuses the configured OpenAI-compatible credential. Only used by the
+    # optional voice_intelligence feature.
+    voice_model: str = Field(default="whisper-1", alias="REZE_VOICE_MODEL")
+    voice_max_mb: int = Field(default=25, alias="REZE_VOICE_MAX_MB")
+
+    # ------------------------------------------ REZE 3: optional bot companion
+    # Only started when the bot_companion feature is explicitly enabled. The bot
+    # answers the owner only; it is not a public bot and never accepts commands
+    # from other users.
+    companion_token: str = Field(default="", alias="REZE_COMPANION_TOKEN")
+    companion_poll_seconds: int = Field(default=3, alias="REZE_COMPANION_POLL_SECONDS")
+
     # ------------------------------------------------------------- Safety limits
     max_purge_limit: int = Field(default=100, alias="REZE_MAX_PURGE_LIMIT")
     max_tagall_limit: int = Field(default=50, alias="REZE_MAX_TAGALL_LIMIT")

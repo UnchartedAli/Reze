@@ -91,6 +91,14 @@ async def create_sticker_set(
     The returned URL is only built after the request succeeded, using the
     ``short_name`` Telegram confirmed.
     """
+    from reze.media import stickerbot
+
+    if stickerbot.token():  # users cannot create sets over MTProto; the owner's bot does it
+        me = await client.get_me()
+        validate_sticker_asset(sticker_path)
+        name = await stickerbot.create_named_pack(me.id, (title or "").strip() or "Reze Pack", sticker_path, _emoji_argument(emoji))
+        return {"short_name": name, "title": title, "count": 1, "url": f"https://t.me/addstickers/{name}", "emoji": emoji}
+
     from telethon.tl.functions.stickers import CreateStickerSetRequest
     from telethon.tl.types import InputStickerSetItem
 
@@ -133,6 +141,14 @@ async def add_sticker_to_set(
     emoji: str = "🙂",
 ) -> Dict[str, Any]:
     """Add one sticker to an existing set owned by the current account."""
+    from reze.media import stickerbot
+
+    if stickerbot.token():
+        me = await client.get_me()
+        validate_sticker_asset(sticker_path)
+        name = await stickerbot.add_to_named_pack(me.id, short_name, sticker_path, _emoji_argument(emoji))
+        return {"short_name": name, "url": f"https://t.me/addstickers/{name}", "emoji": emoji}
+
     from telethon.tl.functions.stickers import AddStickerToSetRequest
     from telethon.tl.types import InputStickerSetItem, InputStickerSetShortName
 

@@ -281,6 +281,41 @@ def settings_page(state: dict, csrf: str) -> str:
         f'<option value="{esc(name)}" {"selected" if name == prefs["ai_vision"] else ""}>{esc(name)}</option>'
         for name in ("auto", "on", "off")
     )
+    language_options = "".join(
+        f'<option value="{esc(code)}" {"selected" if code == prefs.get("language", "en") else ""}>'
+        f'{esc(name)} ({esc(code)})</option>'
+        for code, name in (state.get("languages") or {"en": "English"}).items()
+    )
+    feature_rows = []
+    for feature in state.get("features") or []:
+        if feature["enabled"]:
+            action_html = (
+                '<input type="hidden" name="action" value="disable">'
+                '<button type="submit" class="secondary">Disable</button>'
+            )
+        else:
+            confirm_html = (
+                '<label class="sub"><input type="checkbox" name="confirm" value="1" required> '
+                "I understand this is sensitive</label> "
+                if feature["sensitive"]
+                else ""
+            )
+            action_html = (
+                '<input type="hidden" name="action" value="enable">'
+                + confirm_html
+                + '<button type="submit">Enable</button>'
+            )
+        feature_rows.append(
+            "<tr>"
+            f"<td><code>{esc(feature['key'])}</code>{' *' if feature['sensitive'] else ''}</td>"
+            f"<td>{esc(feature['label'])}<br><span class=\"sub\">{esc(feature['description'])}</span></td>"
+            f"<td>{pill('ON', 'ok') if feature['enabled'] else pill('OFF', 'off')}</td>"
+            "<td><form method=\"POST\" action=\"/features/toggle\">"
+            f"{csrf_field(csrf)}"
+            f"<input type=\"hidden\" name=\"key\" value=\"{esc(feature['key'])}\">"
+            f"{action_html}</form></td></tr>"
+        )
+    features_html = "".join(feature_rows) or "<tr><td colspan=\"4\">No features registered.</td></tr>"
     return f"""
 <h1>Settings</h1>
 <p class="sub">Validated server-side. Secrets are never rendered back to the browser.</p>
@@ -289,6 +324,7 @@ def settings_page(state: dict, csrf: str) -> str:
 {csrf_field(csrf)}
 <div class="form-row">
     <div><label>Theme</label><select name="theme">{themes}</select></div>
+    <div><label>Language</label><select name="language">{language_options}</select></div>
     <div><label>Command prefix</label><input name="prefix" value="{esc(prefs['prefix'])}" maxlength="2"></div>
     <div><label>Log level</label><input name="log_level" value="{esc(prefs['log_level'])}"></div>
 </div>
@@ -324,6 +360,15 @@ def settings_page(state: dict, csrf: str) -> str:
 <tr><td>Automation enabled</td><td>{pill('yes', 'ok') if state['limits']['automation'] else pill('no', 'off')}</td></tr>
 </table>
 <p class="sub" style="margin-top:.8rem">API keys, session strings and hashes are environment-only and are never stored in the browser-accessible database.</p>
+</div>
+
+<h2 id="features">Optional features</h2>
+<div class="card">
+<p class="sub">Every optional feature is OFF by default. Enabling one never enables another. * = sensitive, requires the confirmation checkbox.</p>
+<table>
+<tr><th>Key</th><th>Feature</th><th>State</th><th>Action</th></tr>
+{features_html}
+</table>
 </div>
 """
 

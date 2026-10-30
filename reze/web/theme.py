@@ -115,16 +115,61 @@ def esc(value) -> str:
     return html.escape(str(value if value is not None else ""))
 
 
+#: Panel chrome strings. Page bodies stay English in 3.0; the navigation,
+#: login screen and footer follow the selected language and text direction.
+PANEL_TEXT = {
+    "fa": {
+        "Overview": "نمای کلی",
+        "Platform": "پلتفرم",
+        "Community": "جامعه",
+        "Personal": "شخصی",
+        "Dashboard": "داشبورد",
+        "Logs": "لاگ‌ها",
+        "Plugins": "افزونه‌ها",
+        "Tasks": "کارها",
+        "Automations": "اتوماسیون",
+        "Settings": "تنظیمات",
+        "Groups": "گروه‌ها",
+        "Filters": "فیلترها",
+        "Security": "امنیت",
+        "Archive": "آرشیو",
+        "Profile clock": "ساعت پروفایل",
+        "Sign out": "خروج",
+        "Sign in": "ورود",
+        "Username": "نام کاربری",
+        "Password": "رمز عبور",
+        "Unlock panel": "ورود به پنل",
+        "Personal Telegram OS": "سیستم‌عامل شخصی تلگرام",
+    }
+}
+
+
+def panel_language() -> str:
+    try:
+        from reze.localization import get_language
+
+        return get_language()
+    except Exception:  # pragma: no cover - early boot
+        return "en"
+
+
+def panel_text(key: str, default: str = "", language: str = "") -> str:
+    language = language or panel_language()
+    return PANEL_TEXT.get(language, {}).get(key, default or key)
+
+
 def render_shell(title: str, content: str, active: str = "dashboard", csrf: str = "") -> str:
+    language = panel_language()
+    direction = "rtl" if language == "fa" else "ltr"
     nav_html = []
     for section, items in NAV_SECTIONS:
-        nav_html.append(f'<div class="nav-label">{esc(section)}</div>')
+        nav_html.append(f'<div class="nav-label">{esc(panel_text(section, section, language))}</div>')
         for key, label, url in items:
             klass = "active" if key == active else ""
-            nav_html.append(f'<a href="{url}" class="{klass}">{esc(label)}</a>')
+            nav_html.append(f'<a href="{url}" class="{klass}">{esc(panel_text(label, label, language))}</a>')
 
     return f"""<!DOCTYPE html>
-<html lang="en" dir="ltr">
+<html lang="{esc(language)}" dir="{direction}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -137,18 +182,21 @@ def render_shell(title: str, content: str, active: str = "dashboard", csrf: str 
 <header>
     <div class="brand">REZE<span class="badge">v{esc(__version__)}</span></div>
     <div class="meta">{esc(__author__)} · <a href="{esc(__channel_url__)}" target="_blank" rel="noopener noreferrer">{esc(__channel__)}</a></div>
-    <form method="POST" action="/logout"><input type="hidden" name="csrf_token" value="{esc(csrf)}"><button type="submit" class="danger">Sign out</button></form>
+    <form method="POST" action="/logout"><input type="hidden" name="csrf_token" value="{esc(csrf)}"><button type="submit" class="danger">{esc(panel_text("Sign out", "Sign out", language))}</button></form>
 </header>
 <div class="layout">
     <aside><nav class="nav">{''.join(nav_html)}</nav></aside>
     <main>{content}</main>
 </div>
-<footer>REZE — Personal Telegram OS · version {esc(__version__)} · <a href="{esc(__channel_url__)}" target="_blank" rel="noopener noreferrer">{esc(__channel__)}</a></footer>
+<footer>REZE — {esc(panel_text("Personal Telegram OS", "Personal Telegram OS", language))} · version {esc(__version__)} · <a href="{esc(__channel_url__)}" target="_blank" rel="noopener noreferrer">{esc(__channel__)}</a></footer>
 </body>
 </html>"""
 
 
 def render_login(error: str = "", setup: str = "") -> str:
+    language = panel_language()
+    direction = "rtl" if language == "fa" else "ltr"
+    heading = "REZE — " + panel_text("Sign in", "Sign in", language)
     if setup:
         body = f'<div class="alert">{setup}</div>'
     else:
@@ -156,20 +204,20 @@ def render_login(error: str = "", setup: str = "") -> str:
         body = f"""
         {error_html}
         <form method="POST" action="/login">
-            <label for="username">Username</label>
+            <label for="username">{esc(panel_text("Username", "Username", language))}</label>
             <input id="username" name="username" type="text" autocomplete="username" required autofocus>
-            <label for="password">Password</label>
+            <label for="password">{esc(panel_text("Password", "Password", language))}</label>
             <input id="password" name="password" type="password" autocomplete="current-password" required>
-            <div style="margin-top:1.2rem"><button type="submit" style="width:100%">Unlock panel</button></div>
+            <div style="margin-top:1.2rem"><button type="submit" style="width:100%">{esc(panel_text("Unlock panel", "Unlock panel", language))}</button></div>
         </form>
         """
     return f"""<!DOCTYPE html>
-<html lang="en" dir="ltr">
+<html lang="{esc(language)}" dir="{direction}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>REZE // Sign in</title>
+<title>REZE // {esc(heading)}</title>
 <style>{PANEL_CSS}</style>
 </head>
 <body>

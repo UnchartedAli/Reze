@@ -175,12 +175,12 @@ _BLOCK_BANNER = (
 
 
 def banner(theme: Optional[str] = None) -> str:
-    """The REZE 2.0 identity block."""
+    """The REZE 3.0 identity block."""
     selected = theme_for(theme)
     if selected.banner_style == "line":
-        return f"REZE 2.0 // PERSONAL TELEGRAM OS // v{__version__}"
+        return f"REZE 3.0 // YOUR PERSONAL DIGITAL OS // v{__version__}"
     body = "\n".join("  " + row for row in _BLOCK_BANNER)
-    return f"{body}\n\n  PERSONAL TELEGRAM OS  //  v{__version__}"
+    return f"{body}\n\n  YOUR PERSONAL DIGITAL OS  //  v{__version__}"
 
 
 def divider(theme: Optional[str] = None, width: Optional[int] = None) -> str:
@@ -399,7 +399,7 @@ def preview(theme: Optional[str] = None) -> str:
                 "Theme: " + selected.label + "  (" + selected.description + ")",
                 "Frames, tags, tables and progress all share one renderer.",
             ],
-            footer="REZE 2.0 // " + __version__,
+            footer="REZE 3.0 // " + __version__,
             theme=selected.key,
         ),
         section("Status tags", theme=selected.key),

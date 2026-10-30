@@ -18,10 +18,12 @@ by ``(scope, message_id)`` where scope is the channel id or ``0``.
 """
 
 import asyncio
+import csv
 import json
 import os
 import shutil
 import sqlite3
+import zipfile
 import time
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
@@ -340,6 +342,85 @@ class MessageLogger:
                  pick("sender_name"), pick("text"), pick("media_kind"), kept, pick("sent_at"), self._clock()),
             )
             conn.commit()
+
+    @staticmethod
+    def _like(text: str) -> str:
+        return "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+    def search_archive(self, query: str = "", limit: int = 8, kind: Optional[str] = None) -> List[sqlite3.Row]:
+        """Newest-first search over text, sender and chat title of the permanent archive."""
+        sql = "SELECT * FROM msglog_archive"
+        args: List[Any] = []
+        where = []
+        if query.strip():
+            like = self._like(query.strip())
+            where.append("(text LIKE ? ESCAPE '\\' OR sender_name LIKE ? ESCAPE '\\' OR chat_title LIKE ? ESCAPE '\\')")
+            args += [like, like, like]
+        if kind:
+            where.append("kind = ?")
+            args.append(kind)
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY id DESC LIMIT ?"
+        args.append(max(1, min(int(limit), 50)))
+        with self.connect() as conn:
+            return conn.execute(sql, args).fetchall()
+
+    def get_archived(self, item_id: int) -> Optional[sqlite3.Row]:
+        with self.connect() as conn:
+            return conn.execute("SELECT * FROM msglog_archive WHERE id = ?", (int(item_id),)).fetchone()
+
+    async def send_archived(self, client: Any, item_id: int) -> bool:
+        """Re-send one archived item (text report + media if it still exists) to the destination."""
+        row = self.get_archived(item_id)
+        if row is None:
+            return False
+        await self._deliver(client, row, "Archived message")
+        return True
+
+    def export_archive(self, directory: str, fmt: str = "json", with_media: bool = False) -> str:
+        """Write the archive to ``directory`` and return the file path (json | csv | zip)."""
+        fmt = fmt.lower()
+        if fmt not in ("json", "csv", "zip"):
+            raise ValueError("Format must be json, csv or zip.")
+        with self.connect() as conn:
+            rows = [dict(r) for r in conn.execute("SELECT * FROM msglog_archive ORDER BY id").fetchall()]
+        if not rows:
+            raise ValueError("The archive is empty.")
+        for r in rows:
+            r["sent_at_iso"] = self._stamp(r.get("sent_at"))
+            r["saved_at_iso"] = self._stamp(r.get("saved_at"))
+        os.makedirs(directory, exist_ok=True)
+        stamp = int(self._clock())
+
+        if fmt == "json":
+            path = os.path.join(directory, f"reze_archive_{stamp}.json")
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(rows, handle, ensure_ascii=False, indent=2)
+            return path
+        if fmt == "csv":
+            path = os.path.join(directory, f"reze_archive_{stamp}.csv")
+            fields = ["id", "kind", "saved_at_iso", "sent_at_iso", "chat_title", "chat_kind", "sender_id",
+                      "sender_name", "media_kind", "media_path", "text"]
+            with open(path, "w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
+                writer.writeheader()
+                writer.writerows(rows)
+            return path
+
+        path = os.path.join(directory, f"reze_archive_{stamp}.zip")
+        total = sum(os.path.getsize(r["media_path"]) for r in rows if r.get("media_path") and os.path.isfile(r["media_path"]))
+        if with_media is not False and total > 500 * 1024 * 1024:
+            raise ValueError("The archived media is larger than 500 MB; export json or csv instead.")
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+            for r in rows:
+                media = r.get("media_path")
+                if media and os.path.isfile(media):
+                    arcname = f"media/{os.path.basename(media)}"
+                    archive.write(media, arcname)
+                    r["media_file"] = arcname
+            archive.writestr("index.json", json.dumps(rows, ensure_ascii=False, indent=2))
+        return path
 
     def clear_archive(self) -> int:
         with self.connect() as conn:

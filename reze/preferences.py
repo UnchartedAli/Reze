@@ -17,6 +17,7 @@ PREFERENCE_KEYS = (
     "theme",
     "compact",
     "prefix",
+    "language",
     "ai_provider",
     "ai_model",
     "ai_vision",
@@ -32,6 +33,7 @@ def _defaults() -> Dict[str, str]:
         "theme": settings.theme,
         "compact": "1" if settings.compact_mode else "0",
         "prefix": settings.default_prefix,
+        "language": settings.language,
         "ai_provider": settings.ai_provider,
         "ai_model": settings.ai_model,
         "ai_vision": settings.ai_vision,
@@ -97,6 +99,15 @@ def set_pref(key: str, value: Any) -> None:
         if text.lower() not in {"auto", "on", "off"}:
             raise ValueError("AI vision must be one of: auto, on, off.")
         text = text.lower()
+    elif key == "language":
+        from reze.localization.manager import LANGUAGES
+
+        lowered = text.lower()
+        aliases = {"persian": "fa", "farsi": "fa", "english": "en", "en-us": "en", "en-gb": "en"}
+        lowered = aliases.get(lowered, lowered)
+        if lowered not in LANGUAGES:
+            raise ValueError("Language must be one of: en, fa.")
+        text = lowered
     elif key == "log_level":
         if text.upper() not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
             raise ValueError("Invalid log level.")

@@ -20,13 +20,20 @@ from reze import __author__, __channel__, __channel_url__, __version__
 from reze.automation.engine import automation_engine
 from reze.command_router import router
 from reze.config import settings
+from reze.core.companion import companion_service
 from reze.core.presence import presence_service
+from reze.core.registry import registry
+from reze.features import features
 from reze.logging_config import logger, setup_logging
+from reze.personal.focus import focus_service
 from reze.plugin_manager import plugin_manager
 from reze.preferences import get_pref
 from reze.productivity.reminders import reminder_service
 from reze.runtime import set_main_loop
 from reze.scheduler import clock_scheduler
+from reze.automation.workflow import workflow_service
+from reze.capture.inbox import inbox_service
+from reze.modules.reactions import random_reaction_service
 from reze.telegram_client import events, telegram_manager
 from reze.ui import ascii
 from reze.web.app import run_web_server, stop_web_server
@@ -47,15 +54,36 @@ import reze.commands.automation  # noqa: F401
 import reze.commands.system  # noqa: F401
 import reze.commands.presence  # noqa: F401
 import reze.commands.watch  # noqa: F401
+import reze.commands.afk  # noqa: F401
+import reze.commands.alerts  # noqa: F401
 import reze.commands.owner  # noqa: F401
 import reze.commands.groupadmin  # noqa: F401
 import reze.commands.fun  # noqa: F401
 import reze.commands.tools  # noqa: F401
 import reze.commands.downloads  # noqa: F401
+import reze.commands.features  # noqa: F401
+import reze.commands.language  # noqa: F401
+import reze.commands.knowledge  # noqa: F401
+import reze.commands.crm  # noqa: F401
+import reze.commands.decisions  # noqa: F401
+import reze.commands.focus  # noqa: F401
+import reze.commands.projects  # noqa: F401
+import reze.commands.expenses  # noqa: F401
+import reze.commands.writing  # noqa: F401
+import reze.commands.insights  # noqa: F401
+import reze.commands.capture  # noqa: F401
+import reze.commands.vault  # noqa: F401
+import reze.commands.maintenance  # noqa: F401
+import reze.commands.workflows  # noqa: F401
+import reze.commands.agent  # noqa: F401
+import reze.commands.companion  # noqa: F401
+import reze.commands.reactions  # noqa: F401
 
 from reze.modules.antiflood import antiflood_tracker
 from reze.modules.filters import check_blacklists, check_message_filters
 from reze.games.tictactoe import tictactoe_manager
+from reze.modules.afk import afk_service
+from reze.modules.alerts import alert_service
 from reze.modules.msglog import message_logger
 
 
@@ -71,6 +99,33 @@ async def handle_incoming_telegram_message(event):
         await message_logger.on_new_message(event)
     except Exception as exc:  # noqa: BLE001 - logging must never break the bot
         logger.debug("Message Guard capture failed: %s", exc)
+
+    # 0a. Optional Smart Inbox classification. It only records what arrived and
+    #     never replies, forwards or contacts anyone.
+    if text and not getattr(message, "out", False) and features.is_enabled("smart_inbox"):
+        try:
+            inbox_service.capture(
+                chat_id or 0,
+                getattr(message, "id", 0) or 0,
+                sender_id or 0,
+                text=text,
+            )
+        except Exception as exc:  # noqa: BLE001 - capture must not break the bot
+            logger.debug("Smart Inbox capture failed: %s", exc)
+
+    # 0a2. Optional random reactions (OFF by default, rare, bounded by the service).
+    if features.is_enabled("random_reactions"):
+        try:
+            await random_reaction_service.on_new_message(event)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Random reaction hook failed: %s", exc)
+
+    # 0b. AFK auto-replies / missed-message log, and mention & keyword alerts.
+    for hook in (afk_service.on_new_message, afk_service.on_outgoing, alert_service.on_new_message):
+        try:
+            await hook(event)
+        except Exception as exc:  # noqa: BLE001 - these helpers must never break the bot
+            logger.debug("Message hook %s failed: %s", getattr(hook, "__qualname__", hook), exc)
 
     # 0b. Tic-tac-toe moves (plain digits 1-9 from the player whose turn it is).
     try:
@@ -259,7 +314,19 @@ async def main():
     automation_engine.client_provider = lambda: telegram_manager.client
     automation_engine.start()
 
+    # REZE 3 optional services. Registration does not start anything: start_all
+    # only starts services whose feature the owner explicitly enabled.
+    for service in (focus_service, workflow_service, random_reaction_service, companion_service):
+        registry.register(service)
+    workflow_service.client_provider = lambda: telegram_manager.client
+    random_reaction_service.client_provider = lambda: telegram_manager.client
+    await registry.start_all()
+    if registry.started:
+        logger.info("Optional services started: %s", ", ".join(registry.started))
+
     message_logger.client_provider = lambda: telegram_manager.client
+    afk_service.client_provider = lambda: telegram_manager.client
+    alert_service.client_provider = lambda: telegram_manager.client
     if message_logger.config["enabled"]:
         message_logger.start()
 
@@ -306,6 +373,10 @@ async def main():
         presence_service.stop()
         automation_engine.stop()
         message_logger.stop()
+        try:
+            await registry.stop_all()
+        except Exception as exc:  # noqa: BLE001 - shutdown must continue
+            logger.warning("Could not stop optional services cleanly: %s", exc)
         stop_web_server()
 
         try:
