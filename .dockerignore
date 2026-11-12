@@ -1,0 +1,13 @@
+# Keep secrets, local state and caches out of the image (and out of Cloady builds).
+.git
+.github
+.env
+.env.*
+!.env.example
+*.session
+*.session-journal
+data/
+tests/
+.venv/
+__pycache__/
+*.pyc

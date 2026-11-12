@@ -1,0 +1,68 @@
+# ========================================================
+#  Cloady deployment for Reze Telegram Userbot
+#  Developer: UnchartedAli  ·  Channel: @yamods
+# ========================================================
+#
+#  Cloady deploys this compose project from a GitHub repo or uploaded folder.
+#  Cloady-specific behaviour used below (per Cloady's compose contract):
+#    * ports:                 are public, so only the panel port is published
+#    * volumes.*.driver_opts  sets the persistent disk size
+#    * env_file: [".env"]     receives the secrets you set in the Cloady panel
+#    * depends_on             is ignored (this project has one service anyway)
+#
+#  Rules:
+#    * Run exactly ONE replica. The same Telegram session must not connect twice.
+#    * Use REZE_SESSION_STRING. Never commit .env or a *.session file.
+#    * Set REZE_PUBLIC_URL to the https:// address Cloady gives the service.
+#
+#  Local test (optional):
+#    cp .env.example .env && docker compose -f docker-compose.cloady.yml up --build
+# ========================================================
+
+services:
+  reze:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: reze-userbot:latest
+    restart: unless-stopped
+
+    # Secrets live in the Cloady panel and reach the container through this file.
+    env_file:
+      - .env
+
+    environment:
+      # Cloady's proxy terminates TLS, so trust X-Forwarded-* and set Secure cookies.
+      REZE_WEB_HOST: 0.0.0.0
+      REZE_WEB_PORT: "8080"
+      # Matches the port published below. If Cloady injects its own PORT,
+      # make this value and the ports entry match it.
+      PORT: "8080"
+      REZE_WEB_TRUST_PROXY: "true"
+      REZE_DATA_DIR: /app/data
+
+    # Public port. Cloady routes HTTPS traffic to this container port.
+    ports:
+      - "8080:8080"
+
+    # Persistent disk for the SQLite database, reminders, and backups.
+    volumes:
+      - reze_data:/app/data
+
+    healthcheck:
+      test: ["CMD", "python", "scripts/healthcheck.py"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  reze_data:
+    driver_opts:
+      size: 1G

@@ -119,6 +119,55 @@ Behind a reverse proxy, set `REZE_WEB_TRUST_PROXY=true` so cookies become
 - The panel password is mandatory in hosted mode; login stays disabled without
   `REZE_PANEL_PASSWORD` or `REZE_PANEL_PASSWORD_HASH`.
 
+## 5a. Cloady
+
+Cloady (cloady.com) deploys the `docker-compose.cloady.yml` project in this
+repository. It builds the existing `Dockerfile`, runs one container, and gives
+you public HTTPS and a persistent disk.
+
+1. Push the repository to GitHub, or upload the folder. In Cloady, create an
+   app from the repository.
+2. Point the app at `docker-compose.cloady.yml`. If Cloady only reads
+   `docker-compose.yml` or `compose.yml`, copy this file to that name on your
+   deployment branch. Leave the original `docker-compose.yml` for VPS use.
+3. In the Cloady panel, set these as secret environment variables (they reach
+   the container through `env_file: .env`):
+
+   ```dotenv
+   REZE_API_ID=123456
+   REZE_API_HASH=...
+   REZE_OWNER_ID=123456789
+   REZE_SESSION_STRING=...
+   REZE_PANEL_USERNAME=admin
+   REZE_PANEL_PASSWORD_HASH=...
+   REZE_SECRET_KEY=...
+   REZE_PUBLIC_URL=https://<your-cloady-address>
+   REZE_TIMEZONE=UTC
+   ```
+
+   Generate the values as described in section 1. Do not set
+   `REZE_PANEL_PASSWORD` in plaintext if you can use the hash.
+4. Deploy. The persistent volume `reze_data` is mounted at `/app/data` and
+   holds the SQLite database, reminders, and backups between deploys. Its size
+   is set by `driver_opts.size` (currently `1G`).
+5. Check `https://<your-cloady-address>/healthz`, which should return
+   `{"status":"ok"}`. Then send `.id` from your Telegram account to confirm the
+   userbot is online.
+
+Cloady notes:
+
+- Run **one** instance. The same Telegram session must not connect twice.
+- Cloady's proxy handles TLS, so `REZE_WEB_TRUST_PROXY=true` is already set in
+  the compose file. Keep it on.
+- The container listens on port 8080. If Cloady injects its own `PORT` value,
+  change the `PORT` and `ports:` entries in `docker-compose.cloady.yml` to
+  match it.
+- Some Cloady features, such as the exact disk-size format and the names of
+  its injected variables, are documented in the Cloady dashboard and docs.
+  Confirm them on your first deploy.
+- `.dockerignore` keeps `.env`, `*.session`, and the local `data/` folder out of
+  the image, so secrets and the sample database are not baked into it.
+
 ## 6. Reverse proxy (nginx)
 
 ```nginx
