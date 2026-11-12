@@ -40,4 +40,4 @@ services:
         max-file: "3"
 
 volumes:
-  reze_data:
+  reze_data: {}
