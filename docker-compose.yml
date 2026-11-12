@@ -20,8 +20,6 @@ services:
       dockerfile: Dockerfile
     image: reze-userbot:latest
     restart: unless-stopped
-    env_file:
-      - .env
     environment:
       REZE_WEB_HOST: 0.0.0.0
       REZE_DATA_DIR: /app/data
