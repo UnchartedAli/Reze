@@ -12,13 +12,13 @@
 #  between container restarts. The panel is exposed on port 8080.
 # ========================================================
 
+
 services:
   reze:
     build:
       context: .
       dockerfile: Dockerfile
     image: reze-userbot:latest
-    container_name: reze
     restart: unless-stopped
     env_file:
       - .env
@@ -28,7 +28,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./data:/app/data
+      - reze_data:/app/data
     healthcheck:
       test: ["CMD", "python", "scripts/healthcheck.py"]
       interval: 30s
@@ -40,3 +40,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  reze_data:
