@@ -145,3 +145,14 @@ resolved explicitly with `.sentinel resolve <id>`.
 
 Never copy a live WAL database with a plain file copy while the process is
 running — use `.backup create` instead.
+
+## Upgrades (REZE 4.0 work so far)
+
+* **Atomic migrations.** Each migration runs in its own transaction. A failed migration
+  leaves the database at the previous version, with none of its tables created.
+* **Verified copy first.** When a migration is pending, a copy is saved before any write
+  (see `CONFIGURATION.md`, section "Upgrades and the pre-upgrade copy").
+* **Migration 5** adds the Channel Digest tables. **Migration 6** adds the Style Assistant
+  tables. Both leave every feature OFF.
+* **Tested upgrade paths:** a REZE 3.0-shaped database (rebuilt, not a real 3.0 file), and a
+  REZE 2 file (a copy of the uploaded `data/reze.db`).

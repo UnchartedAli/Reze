@@ -60,7 +60,7 @@ class BackendTests(unittest.TestCase):
         self.file.close()
         self.index = {"s": 1, "v": 1}
         self.patches = [
-            patch.dict(os.environ, {"REZE_STICKER_BOT_TOKEN": "123:secret-token"}),
+            patch.dict(os.environ, {"REZE_STICKER_BOT_TOKEN": "123:secret-token", "REZE_STICKER_BOT_USERNAME": "MyStickerBot"}),
             patch.object(stickerbot, "_get_index", lambda video: self.index["v" if video else "s"]),
             patch.object(stickerbot, "_set_index", lambda video, i: self.index.__setitem__("v" if video else "s", i)),
         ]

@@ -3,6 +3,215 @@
 All notable changes to **Reze** are documented here.
 Developer: **UnchartedAli** · Channel: **[@yamods](https://t.me/yamods)**
 
+## [Unreleased] — Container verification
+
+### Fixed
+- `docker-compose.yml` published the port named by `PORT` but did not pass `PORT` into the container, so a host
+  `PORT` other than 8080 led to a port the app did not listen on. The container now receives `PORT`.
+- The compose checker reports `PORT-NOT-PASSED` for this mistake.
+
+### Verified
+- The image builds from the repository's Dockerfile (on a stand-in base), starts, passes its health check on the
+  configured port, serves login, and keeps its data across a restart.
+
+## [Unreleased] — Buttons for custom name and reactions
+
+### Added
+- Watchdog: 🏷 Custom name button in the `/anon` panel (the next message becomes the name).
+- Watchdog: `/react` opens toggle buttons (channels, groups, group chance, private). Owner only.
+
+### Fixed
+- Reaction buttons did nothing: the callback gate did not list the `rx:` prefix.
+
+## [Unreleased] — Anonymous links fixed, reactions
+
+### Fixed
+- Anonymous links: Telegram Reply in both directions was silently ignored. Replies to relayed messages now route back.
+
+### Added
+- Anonymous links: `/anon name <name>` gives a custom link (`t.me/<bot>?start=<name>`).
+- Reactions (all off by default, owner-only `/react`): channel posts (one emoji the channel allows), groups (chance,
+  rate-limited), and private chats (random standard emoji).
+
+### Tests
+- `integrations/watchdog/test_anon.mjs` (11), `integrations/watchdog/test_reactions.mjs` (10).
+
+## [Unreleased] — Channel autopilot edits
+
+### Added
+- Worker (X4 autopilot): a draft can take a photo, GIF, video, document, sticker or a forwarded post when you press Edit.
+  Publishing copies the message to the channel without a forward header (`copyMessage`).
+- Worker (X4 autopilot): 📝 channel note. A description written by the admin is used in the draft prompt, and
+  it outranks the automatic analysis. Capped at 1,500 characters; `reset` clears it.
+
+### Tests
+- `integrations/watchdog/test_autopilot.mjs` (7 tests, real SQL behind the D1 API).
+
+## [Unreleased] — Consent and summaries with Watchdog
+
+### Added
+- Consent for sharing data with other services. Off by default, revocable, and checked before every send.
+  Reze panel page **Consent**, and the `.consent` command (owner).
+- `.watchdog summarize @channel [count]` (needs consent): the Watchdog bot summarizes the chosen posts. Summary lines
+  with numbers or links the posts do not contain are removed. Nothing is stored by Watchdog.
+- Worker `/reze/summarize` route, sharing one signed-request check with `/reze/event`.
+- Worker premium emoji packs: each pack is kept separately, `/emojipack list` and `/emojipack remove` added,
+  and an older single map is migrated.
+
+### Refused
+- Installing Reze on a Telegram account through a bot. Login codes and session strings must not be collected by a bot.
+
+## [Unreleased] — Watchdog bridge and sticker bot
+
+### Added
+- Encrypted secret store (`reze/storage/secret_store.py`). Secrets are written only when `REZE_VAULT_KEY` is set.
+  A secret can be imported once from an environment variable.
+- Sticker bot defaults to `@watchdogappbot`. A token that belongs to another bot is refused
+  (`REZE_STICKER_BOT_USERNAME` overrides the default).
+- Watchdog bridge: signed events from Reze to the worker's `/reze/event` route, and a health check on the worker's
+  cron that alerts the owner when Reze stops answering. Source: `integrations/watchdog/worker.js`.
+- `.watchdog` command (owner): status, test, forget.
+
+### Tests
+- `tests/test_reze4_watchdog.py`, `tests/test_reze4_watchdog_e2e.py`, `integrations/watchdog/test_bridge.mjs`.
+
+## [Unreleased] — Isolated plugin commands
+
+### Added
+- `.isolated` (owner only, feature `isolated_plugins`, OFF by default): list, load, unload and approve plugins
+  from `<data_dir>/isolated_plugins/`. Chat takes names only. Paths are confined to that folder, and symlinks
+  that point elsewhere are refused.
+
+## [Unreleased] — End-to-end check
+
+### Added
+- `scripts/smoke_panel.py`: starts a check against a running panel. It signs in and loads every navigation page.
+
+### Fixed
+- The isolation code had been placed in `reze/plugins/`, so the plugin loader tried to load it as a plugin and logged
+  errors at every start. It now lives in `reze/sandbox/`, and a regression test covers this. The defect was found by
+  running the application; it was never in a released version.
+
+## [Unreleased] — Isolated plugins
+
+### Added
+- Isolated plugin mode. Each isolated plugin runs in its own process, with a clean environment, the standard
+  library only, and reply as its only capability (requires the declared `telegram.message` permission). Calls
+  have timeouts and output limits. Crashes and hangs stop only that plugin. Approval is by file hash.
+  See `docs/PLUGIN_ISOLATION.md`. Loading is from code; there is no chat command yet.
+- `reze_sdk` for isolated plugins, and an example in `docs/examples/`.
+
+### Not changed
+- Plugins loaded the existing way still run inside the bot's process.
+
+## [Unreleased] — Message text at rest
+
+### Added
+- With `REZE_VAULT_KEY` set, message text is encrypted at rest in the message-guard cache and archive, the Style
+  Assistant samples and drafts, and undelivered Channel Digest bodies. Reads decrypt, and rows from before the key
+  was set stay readable. Without the key, storage is unchanged. See `docs/SECURITY.md`.
+- Archive search now decrypts up to the newest 20,000 rows and filters them in Python. Encrypted text cannot be
+  searched with SQL.
+
+### Fixed
+- The guard archive could store cached text encrypted twice. Re-sealing now opens first, and never replaces a
+  value it cannot open with the current key.
+
+## [Unreleased] — Verified copy before upgrades
+
+### Added
+- Before any startup write, REZE saves a copy of the database when a migration is pending, checks it by integrity
+  and version, and keeps the newest five copies in `data/backups/` as `pre-upgrade-*.db`. If the copy fails,
+  startup stops and the database is unchanged. `REZE_SKIP_UPGRADE_BACKUP=1` turns this off.
+
+## [Unreleased] — Migration safety
+
+### Fixed
+- Database migrations are now atomic. A migration runs inside an explicit transaction, so a failure rolls back
+  its tables as well as its data. Previously `CREATE TABLE` statements survived a failed migration.
+
+### Added
+- `tests/test_reze4_upgrade.py`: upgrades from a rebuilt REZE 3.0 database (data kept, new features OFF), from a
+  REZE 2 database without version history, and rollback on failure. Tested against a copy of the uploaded REZE 2
+  database as well.
+
+## [Unreleased] — Channel Digest web panel
+
+### Added
+- Channel Digest page in the web panel (English and Persian): settings, per-channel priority and filters, search,
+  Generate now (a request handled by the digest loop, which works while scheduled digests are paused), history,
+  and confirmed history deletion.
+
+## [Unreleased] — Style Assistant
+
+### Added
+- **Style Assistant** (OFF by default; `.features enable style_assistant confirm`). Learns the owner's own writing
+  style from chats the owner names, drafts replies that go to Saved Messages for approval, and sends automatic
+  replies only in allow-listed private chats, always starting with a fixed label saying they are automated.
+  Sensitive messages get no reply. See `docs/STYLE_ASSISTANT.md`.
+- Migration 6: `style_samples`, `style_profile`, `style_settings`, `style_auto_chats`, `style_auto_log`,
+  `style_drafts`. Nothing is enabled by it.
+- `.style` command (owner only).
+- Style Assistant page in the web panel (English and Persian): status, settings, allow list, pending drafts, and delete-everything with confirmation.
+
+## [Unreleased] — Channel Digest and guard fixes
+
+### Added
+- **Channel Digest** (OFF by default; `.features enable channel_digest confirm` to allow it, then `.digest on`).
+  Collects new posts from selected channels and sends one digest to Saved Messages at a set time.
+  Persistent schedule slots (one digest per slot), checkpoints that advance only with the stored digest,
+  retries with backoff, flood-wait handling, AI summaries with a grounding check, and a basic non-AI fallback.
+  Commands: `.digest` (status, channels, add, remove, priority, filter, on/off, pause/resume, time, timezone,
+  days, ai, language, limit, now, history, settings, clear). See `docs/CHANNEL_DIGEST.md`.
+- Migration 5: `digest_config`, `digest_channels`, `digest_runs`. Nothing is enabled by it.
+- Message Guard: `bots` switch (`.watch bots on|off`), OFF by default.
+
+### Changed
+- `.digest` is now the Channel Digest command. Its old chat summary moved to `.chatdigest`.
+  `.digest <count>` and bare `.digest` for non-owners keep the chat summary.
+
+### Fixed
+- Message Guard: bot conversations were covered by the `private` switch, and bot messages in watched groups
+  were stored and reported to Saved Messages. Bots are now a separate category, OFF by default. Edits and
+  deletes are reported only while the chat is still watched under the current settings. Cached rows saved
+  before this fix are cleared once (the permanent archive is not changed automatically).
+- Digest-related: basic digests now report how many posts they do not show.
+
+## [Unreleased] — REZE 4.0 Milestone 1
+
+Security and reliability fixes from the REZE 4.0 audit. Full findings and status:
+`docs/REZE_4_AUDIT.md` and `docs/REZE_4_ROADMAP.md`. The version remains 3.0.0.
+
+### Security
+- Login rate limiting no longer trusts the client-supplied first `X-Forwarded-For`
+  entry. The last entry, or a proxy-set `CF-Connecting-IP` / `X-Real-IP`, is used
+  when `REZE_WEB_TRUST_PROXY=true`.
+- Backups are encrypted with AES-256-GCM when a vault key is configured. The key is
+  never stored in the backup. Without a key, backups stay plaintext, as before.
+- Restore refuses backups from a schema newer than this build supports, and reports
+  `restart_required` when the schema differs from the live database.
+- Backup identifiers must match exactly (id, file name, or path). Partial matches
+  are no longer accepted.
+
+### Fixed
+- `run_tests.py` ran no unittest classes and reported "0 passed" with exit code 0.
+  It now uses unittest discovery, reports real counts, and exits 1 on failure.
+- Dockerfile image label `org.opencontainers.image.version` reads `3.0.0`.
+- Compose: `docker-compose.yml` mounts a declared named volume (`reze_data`) instead
+  of a host bind mount, which managed hosts reject.
+- Compose: the published port follows `${PORT:-8080}`, so it matches the port Cloady
+  assigns. A fixed `8080:8080` could disagree with the port the app listens on.
+
+### Added
+- Panel "Sign out everywhere" (`POST /logout-all`, CSRF-checked) ends every panel session.
+- Security center warning when the latest backup is not encrypted.
+- `reze.timeutil.utcnow()`, replacing the deprecated `datetime.utcnow()` across `reze/`.
+- `reze.deploy.compose_check`: an offline checker for Compose files against Cloady's
+  documented rules and REZE's own requirements. Run `python -m reze.deploy.compose_check`.
+- `.dockerignore`, keeping secrets, session files, local data and tests out of images.
+- `requirements-dev.txt` (PyYAML for the checker tests). CI installs it.
+- Tests: `tests/test_reze4_backup_security.py`, `tests/test_reze4_security_fixes.py`.
+
 ## [3.0.0] — 2026-10-30
 
 REZE 3.0 turns the userbot into a personal digital operating system without

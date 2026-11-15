@@ -493,7 +493,11 @@ with the same behaviour.
 | `.ai` | — | `.ai <prompt>` | Ask the configured AI provider a question (or transform replied text). | everyone allowed by policy |
 | `.aiinfo` | .ai_info | `.aiinfo` | Show the configured AI provider and model without revealing secrets. | everyone allowed by policy |
 | `.describe` | — | `.describe (reply to an image)` | Describe a replied image using a vision-capable model. | everyone allowed by policy |
-| `.digest` | — | `.digest [count]` | Summarize the last few messages of this chat (bounded, explicit limit). | everyone allowed by policy |
+| `.digest` | Channel Digest is owner-only; the chat summary is for everyone | `.digest [status\|channels\|add\|remove\|on\|off\|pause\|resume\|time\|timezone\|days\|now\|…]` | Channel Digest (owner). Bare `.digest` for non-owners and `.digest <count>` keep the chat summary. See `docs/CHANNEL_DIGEST.md`. | owner (channel digest); everyone (chat summary) |
+| `.style` | — | `.style [status\|learn\|show\|draft\|send\|auto\|language\|forget]` | Style Assistant (owner): learn your own writing style, draft replies for approval, labelled auto-replies in allowed private chats. See `docs/STYLE_ASSISTANT.md`. | owner only |
+| `.watch bots on \| off` | — | `.watch bots on\|off` | Watch bot chats and bot messages in groups. OFF by default; `.watch private` and `.watch groups` never include bots. | owner |
+| `.isolated` | Plugins | `.isolated [list\|load\|unload\|approve] [name]` | Load, unload and approve isolated plugins from `<data_dir>/isolated_plugins/`. Feature `isolated_plugins`, OFF by default. See `docs/PLUGIN_ISOLATION.md`. | owner only |
+| `.chatdigest` | — | `.chatdigest [count]` | Summarize the last few messages of this chat (the former bare `.digest`). | everyone allowed by policy |
 | `.rewrite` | — | `.rewrite <shorter\|formal\|casual\|clearer\|bullets>` | Rewrite replied or provided text in a chosen style. | everyone allowed by policy |
 | `.summarize` | — | `.summarize [text]` | Summarize replied text or the provided text with the AI provider. | everyone allowed by policy |
 | `.translate` | .tr | `.translate <language> [text]` | Translate replied or provided text into another language. | everyone allowed by policy |
@@ -706,7 +710,7 @@ with the same behaviour.
 .translate Persian
 .rewrite formal
 .describe                      # reply to an image
-.digest 50
+.chatdigest 50      # or .digest 50
 
 # personal organisation
 .notes add landlord 0912...

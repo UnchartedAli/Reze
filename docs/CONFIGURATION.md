@@ -197,3 +197,16 @@ preferences:
   with `secrets.token_urlsafe`, and stored in a password manager.
 - Rotating `REZE_VAULT_KEY` does not re-encrypt old entries. Export what you
   need first with `.vault export <name>`.
+
+## Upgrades and the pre-upgrade copy
+
+Before a startup that will change the database, REZE saves a verified copy to
+`data/backups/pre-upgrade-*.db` (the newest five are kept). Startup stops if the copy
+cannot be made, and the database is left unchanged.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `REZE_SKIP_UPGRADE_BACKUP` | unset | Set to `1` to upgrade without the copy. Only do this if you accept that risk. |
+
+If startup stops with a message about the copy, make `data/backups/` writable, or
+set `REZE_SKIP_UPGRADE_BACKUP=1` for that single start.

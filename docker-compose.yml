@@ -1,3 +1,20 @@
+# ========================================================
+#  Docker Compose for Reze Telegram Userbot (VPS / home server)
+#  Developer: UnchartedAli  ·  Channel: @yamods
+# ========================================================
+#
+#  Quick start:
+#    cp .env.example .env      # edit the Telegram + panel values
+#    docker compose up -d --build
+#    docker compose logs -f
+#
+#  Data lives in the named volume `reze_data` (SQLite database, reminders,
+#  backups). It survives restarts and rebuilds. Upgrading from an older
+#  ./data bind mount: see DEPLOY.md, section 4.
+#  The panel is exposed on port 8080.
+#  Cloady: deploy this file. Its volume is a declared named volume, as Cloady
+#  requires.
+# ========================================================
 
 services:
   reze:
@@ -5,28 +22,33 @@ services:
       context: .
       dockerfile: Dockerfile
     image: reze-userbot:latest
+    container_name: reze
     restart: unless-stopped
-
+    env_file:
+      - .env
     environment:
       REZE_WEB_HOST: 0.0.0.0
-      REZE_WEB_PORT: 8080
       REZE_DATA_DIR: /app/data
-
+      # The app must listen on the same port that is published below. Without this,
+      # a host PORT would be published while the app still listened on 8080.
+      PORT: "${PORT:-8080}"
+    # Cloady starts every app on PORT (injected by the platform). Local and VPS
+    # runs default to 8080. Both ends follow the same value.
     ports:
-      - "8080:8080"
-
+      - "${PORT:-8080}:${PORT:-8080}"
     volumes:
-      - type: volume
-        source: reze_data
-        target: /app/data
-
+      - reze_data:/app/data
     healthcheck:
       test: ["CMD", "python", "scripts/healthcheck.py"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   reze_data:
-    {}

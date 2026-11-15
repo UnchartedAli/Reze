@@ -167,3 +167,33 @@ overstates the product.
 - Static and video stickers live in separate sets (Telegram does not allow mixing).
 - AFK replies only in private chats and only once per person per 6 hours; groups are logged, never answered.
 - Alerts cover groups and supergroups only. Basic groups have no message links.
+
+## Channel Digest (REZE 4.0, preview)
+
+- **Not tested against a live Telegram account.** The tests use fake clients. Telethon
+  signatures for the calls used were checked against the installed library (version 1.45.0),
+  but the behaviour on a real account has not been observed.
+- **No media understanding.** Photos, video and files are described by label only. OCR and
+  transcription are not implemented.
+- **At most one duplicate chunk after a crash.** If REZE stops between a successful send and
+  saving its progress, that one part can be sent twice.
+- **AI summaries are checked, not understood.** The grounding check removes statements whose
+  numbers or links do not appear in the posts. It does not check meaning or omissions.
+- **Not in the web panel:** adding channels and reading posts (commands only).
+
+## Style Assistant (REZE 4.0, preview)
+
+- **Not tested against a live Telegram account** (same caveat as above).
+- **Automatic replies are always labelled as automated.** This cannot be switched off.
+- **Style matching is approximate.** The profile is statistical and the model imitates tone.
+- **Automated messages from a user account can be rate-limited or restricted by Telegram.**
+- **Not in the web panel:** learning, adding allowed chats and sending drafts (commands only).
+
+## Testing (REZE 4.0)
+
+- The Docker image was built from the repository's Dockerfile on a locally built stand-in for
+  `python:3.12-slim`, not the official image (Docker Hub was unreachable from the build sandbox).
+  `docker compose up` was tested with `--no-build`, because BuildKit also needs Docker Hub.
+  Both steps should be repeated on a machine with access to Docker Hub.
+- Windows installation has not been checked.
+- The Cloady deployment has not been run on a live Cloady account.

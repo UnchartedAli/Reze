@@ -119,54 +119,143 @@ Behind a reverse proxy, set `REZE_WEB_TRUST_PROXY=true` so cookies become
 - The panel password is mandatory in hosted mode; login stays disabled without
   `REZE_PANEL_PASSWORD` or `REZE_PANEL_PASSWORD_HASH`.
 
+## 5-check. Verify the image before you deploy
+
+`scripts/docker_e2e.sh` builds the image and runs it the way a managed host does. It sets `PORT`,
+mounts a named volume, and checks health. It then runs the page smoke test, restarts the container, and
+confirms that no migration runs again:
+
+```bash
+bash scripts/docker_e2e.sh 3000    # PASS when every step succeeds
+```
+
+What was verified in this way (see the roadmap for the exact record):
+
+* The image builds from the repository's `Dockerfile` and starts.
+* With `PORT=3000` the app listens on 3000. With `PORT` unset, compose publishes 8080.
+* `/healthz` returns 200, and Docker reports the container healthy.
+* The app process runs as the unprivileged `reze` user, not root.
+* The named volume keeps data across a restart, and no migration runs again after restart.
+* All 15 navigation pages load for a signed-in owner.
+
+Caveat: the test environment could not reach Docker Hub, so the build used a local Ubuntu 24.04
+base with the same Python 3.12 in place of `python:3.12-slim`. The Dockerfile itself was not changed.
+A real build with Docker Hub access is still worth running once.
+
 ## 5a. Cloady
 
-Cloady (cloady.com) deploys the `docker-compose.cloady.yml` project in this
-repository. It builds the existing `Dockerfile`, runs one container, and gives
-you public HTTPS and a persistent disk.
+Cloady (cloady.com) runs REZE from this repository. It builds the `Dockerfile`
+and runs one container with public HTTPS and a persistent volume. The same
+`docker-compose.yml` also works on a VPS.
 
-1. Push the repository to GitHub, or upload the folder. In Cloady, create an
-   app from the repository.
-2. Point the app at `docker-compose.cloady.yml`. If Cloady only reads
-   `docker-compose.yml` or `compose.yml`, copy this file to that name on your
-   deployment branch. Leave the original `docker-compose.yml` for VPS use.
-3. In the Cloady panel, set these as secret environment variables (they reach
-   the container through `env_file: .env`):
+Public Cloady documentation shows three ways to deploy: the Cloady CLI
+(`cloady deploy ./folder`, or `cloady deploy --type=git <repo-url> --subdir <dir>`),
+the dashboard, and an MCP server for AI assistants at `https://cloady.com/api/mcp`
+(OAuth). This guide uses the CLI or dashboard. Full reference: https://cloady.com/docs.
 
-   ```dotenv
-   REZE_API_ID=123456
-   REZE_API_HASH=...
-   REZE_OWNER_ID=123456789
-   REZE_SESSION_STRING=...
-   REZE_PANEL_USERNAME=admin
-   REZE_PANEL_PASSWORD_HASH=...
-   REZE_SECRET_KEY=...
-   REZE_PUBLIC_URL=https://<your-cloady-address>
-   REZE_TIMEZONE=UTC
-   ```
+### 1. Check the files before deploying
 
-   Generate the values as described in section 1. Do not set
-   `REZE_PANEL_PASSWORD` in plaintext if you can use the hash.
-4. Deploy. The persistent volume `reze_data` is mounted at `/app/data` and
-   holds the SQLite database, reminders, and backups between deploys. Its size
-   is set by `driver_opts.size` (currently `1G`).
-5. Check `https://<your-cloady-address>/healthz`, which should return
-   `{"status":"ok"}`. Then send `.id` from your Telegram account to confirm the
-   userbot is online.
+```bash
+python -m reze.deploy.compose_check docker-compose.yml
+```
+
+The checker reads the compose file offline. It exits 1 on any error and reports
+each finding with its source. A passing run looks like `result: PASS (0 error(s)...)`.
+It catches the common Cloady failures:
+
+- a host bind mount (`./data:/app/data`) instead of a declared named volume
+- a fixed host port instead of `${PORT:-8080}`
+- a secret written into the compose file
+- more than one replica (two instances would share one Telegram session)
+- `.env` committed without a `.gitignore` entry
+
+Install PyYAML first if needed: `pip install -r requirements-dev.txt`.
+
+### 2. Set the secrets in Cloady
+
+Enter these in the Cloady dashboard as secrets (or in the CLI). They are never
+placed in the repository. The compose file reads them through `env_file: .env`.
+
+```dotenv
+REZE_API_ID=123456
+REZE_API_HASH=...
+REZE_OWNER_ID=123456789
+REZE_SESSION_STRING=...
+REZE_PANEL_USERNAME=admin
+REZE_PANEL_PASSWORD_HASH=...
+REZE_SECRET_KEY=...
+REZE_PUBLIC_URL=https://<your-cloady-address>
+REZE_WEB_TRUST_PROXY=true
+REZE_TIMEZONE=UTC
+```
+
+Generate the values as described in section 1 of this guide. Use the hash, not
+`REZE_PANEL_PASSWORD`. The hash contains `$`, so if you ever write it into a
+compose file, escape each `$` as `$$`.
+
+### 3. Deploy
+
+Run `cloady deploy ./` from the repository, or create the app in the Cloady
+dashboard from the GitHub repository. Cloady will show which build path it uses.
+The repository has both a `Dockerfile` and a compose file, so confirm this in the
+dashboard. Public samples show the two paths separately.
+
+### 4. Verify
+
+1. Open `https://<your-cloady-address>/healthz`. It should return `{"status":"ok"}`.
+2. Log in to the panel with the username and the password that matches the hash.
+3. Send `.id` from your Telegram account to confirm the userbot is online.
+
+### Cloady behaviour to confirm on the first deploy
+
+These points are not confirmed by Cloady's public documentation, so the checker
+reports them as heuristics, and you should check them yourself:
+
+- **Port.** Cloady starts apps on `PORT`. The compose file publishes
+  `${PORT:-8080}`, and Reze listens on `PORT` at runtime. If Cloady does not
+  resolve `${PORT}` when it reads the compose file, the published port will still be
+  8080 while the app listens on another port. The symptom is a failed health check.
+  In that case, set `ports:` to match the value Cloady reports.
+- **Disk size.** The volume has no `driver_opts.size`, so Cloady applies its default
+  size. Set a size in the dashboard if you need one. Docker's local driver does
+  not accept that option, so it is not in the compose file.
+- **Build path.** If Cloady builds from the Dockerfile and ignores the compose file,
+  the compose-level settings (volume, environment) must be set in the dashboard
+  instead.
 
 Cloady notes:
 
 - Run **one** instance. The same Telegram session must not connect twice.
-- Cloady's proxy handles TLS, so `REZE_WEB_TRUST_PROXY=true` is already set in
-  the compose file. Keep it on.
-- The container listens on port 8080. If Cloady injects its own `PORT` value,
-  change the `PORT` and `ports:` entries in `docker-compose.cloady.yml` to
-  match it.
-- Some Cloady features, such as the exact disk-size format and the names of
-  its injected variables, are documented in the Cloady dashboard and docs.
-  Confirm them on your first deploy.
-- `.dockerignore` keeps `.env`, `*.session`, and the local `data/` folder out of
-  the image, so secrets and the sample database are not baked into it.
+- `REZE_WEB_TRUST_PROXY=true` belongs only where a proxy terminates HTTPS, as it
+  does on Cloady. On a VPS that exposes port 8080 directly, keep it off, because
+  it would let clients spoof `X-Forwarded-For`. See `docs/SECURITY.md`.
+- `.dockerignore` keeps `.env`, `*.session`, and the local `data/` folder out of the image.
+
+### Sticker bot and Watchdog on Cloady
+
+Two more secrets, and both are stored encrypted by Reze once imported:
+
+* `REZE_VAULT_KEY`: required for any stored secret. Keep it; without it nothing stored can be opened.
+* `REZE_STICKER_BOT_TOKEN`: the @watchdogappbot token. Import once, then remove it from the Cloady panel.
+* `REZE_WATCHDOG_BRIDGE_SECRET`: the same value as the worker's `REZE_BRIDGE_SECRET`. Import once, then remove it.
+* `REZE_WATCHDOG_URL`: defaults to `https://amo.alimmazza043.workers.dev`.
+
+On the Watchdog worker, set `REZE_HEALTH_URL` to this app's public `/healthz` address. The cron then tells
+you if Cloady stops answering. See `integrations/watchdog/README.md`.
+
+### Moving an existing VPS install from `./data` to the named volume
+
+Older copies of `docker-compose.yml` stored data in `./data`. Copy it into the
+named volume once:
+
+```bash
+docker compose up --no-start                       # creates the volume
+VOL=$(docker volume ls -q | grep reze_data)         # e.g. reze_reze_data
+docker run --rm -v "$PWD/data:/from" -v "$VOL:/to" alpine sh -c 'cp -a /from/. /to/'
+docker compose up -d
+```
+
+Keep the `./data` folder as a backup until the bot is running correctly.
 
 ## 6. Reverse proxy (nginx)
 

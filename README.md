@@ -325,6 +325,18 @@ and must be enabled explicitly.
 Details: [SECURITY.md](SECURITY.md) and [docs/SECURITY.md](docs/SECURITY.md).
 Database schema, encryption layout and retention: [docs/DATABASE.md](docs/DATABASE.md).
 
+## Channel Digest and Style Assistant (REZE 4.0, preview)
+
+Both are **OFF by default** and need explicit enabling:
+
+- **Channel Digest** sends a summary of the channels you select to your Saved Messages at a time you choose.
+  See `docs/CHANNEL_DIGEST.md`.
+- **Style Assistant** learns your own writing style, drafts replies for your approval, and can send
+  automatic replies. Every automatic reply is labelled as automated. See `docs/STYLE_ASSISTANT.md`.
+
+Both are controlled by commands (`.digest`, `.style`) and by pages in the web panel. Neither has been
+tested against a live Telegram account. See `docs/KNOWN_LIMITATIONS.md`.
+
 ## Plugins
 
 Drop a file in `reze/plugins/`, declare a `MANIFEST`, and restart (or

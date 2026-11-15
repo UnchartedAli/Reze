@@ -167,3 +167,32 @@ session contents.
   use a dedicated account and a dedicated machine where possible.
 - `remove.bg` receives the image you confirm; that is a third-party transfer,
   disclosed in the confirmation prompt.
+
+## Trusted proxies and login rate limiting (REZE 4.0)
+
+`REZE_WEB_TRUST_PROXY=true` tells the panel to read client addresses from
+forwarding headers. Set it only when the panel is reachable **only through** a
+proxy that overwrites those headers. A directly reachable origin with trust enabled
+allows an attacker to choose the address the login throttle sees.
+
+## Backup encryption (REZE 4.0)
+
+Backups are encrypted with the Digital Vault key when `REZE_VAULT_KEY` (or a
+non-default `REZE_SECRET_KEY`) is set. Keep that key separate from the backup files.
+A backup cannot be restored without the key it was created with. Without a key,
+backups are plain SQLite files and contain everything in the database, including
+archived messages.
+
+## Message text at rest (REZE 4.0)
+
+Set `REZE_VAULT_KEY` to encrypt message text in the message-guard cache and archive, the style
+samples and drafts, and undelivered digest bodies. Only this variable turns it on. The secret-key
+fallback does not, so changing `REZE_SECRET_KEY` cannot make stored text unreadable.
+
+**Keep the key.** Stored text can be read only with the key it was sealed with. If the key changes,
+those rows show a placeholder, and nothing is deleted. Keep the old key until you no longer need the
+old rows.
+
+Still plaintext: the personal archive (`.archive` saves and links), the full-text search index,
+reminders, and notes. Backups follow the backup encryption rules above.
+

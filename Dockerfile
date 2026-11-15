@@ -10,7 +10,7 @@ LABEL org.opencontainers.image.title="Reze Telegram Userbot"
 LABEL org.opencontainers.image.description="Advanced Telegram userbot & web control panel by UnchartedAli (@yamods)"
 LABEL org.opencontainers.image.authors="UnchartedAli"
 LABEL org.opencontainers.image.url="https://t.me/yamods"
-LABEL org.opencontainers.image.version="2.0.0"
+LABEL org.opencontainers.image.version="3.0.0"
 LABEL org.opencontainers.image.licenses="MIT"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
