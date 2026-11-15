@@ -10,6 +10,7 @@ the local archive from Telegram's own history.
 import os
 import re
 from datetime import datetime, timedelta
+from reze.timeutil import utcnow as _utcnow
 
 from reze.command_router import CommandContext, router
 from reze.config import settings
@@ -202,7 +203,7 @@ async def remind_cmd(ctx: CommandContext):
             text = " ".join(ctx.args[2:]) if stamp != first else " ".join(ctx.args[1:])
         else:
             seconds = parse_duration(first)
-            due = datetime.utcnow() + timedelta(seconds=seconds)
+            due = _utcnow() + timedelta(seconds=seconds)
             text = " ".join(ctx.args[1:])
     except ValueError as exc:
         return await ctx.reply(ascii.error("Invalid reminder", [str(exc)]))

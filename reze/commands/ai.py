@@ -163,13 +163,14 @@ async def rewrite_cmd(ctx: CommandContext):
 
 
 @router.register(
-    name="digest",
+    name="chatdigest",
     category=CATEGORY,
-    description="Summarize the last few messages of this chat (bounded, explicit limit).",
-    usage=".digest [count]",
+    description="Summarize the last few messages of this chat (bounded, explicit limit). Also reachable as .digest <count>.",
+    usage=".chatdigest [count]",
     cooldown=10,
+    examples=[".chatdigest", ".chatdigest 30"],
 )
-async def digest_cmd(ctx: CommandContext):
+async def chat_digest_cmd(ctx: CommandContext):
     count = 25
     if ctx.args:
         try:

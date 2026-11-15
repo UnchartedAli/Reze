@@ -4,7 +4,8 @@ Message Guard commands.
     .watch on | off                 enable / disable the guard
     .watch add [chat_id]            watch this chat (or the given id)
     .watch del [chat_id]            stop watching a chat
-    .watch private on|off           watch every private chat
+    .watch private on|off           watch every private chat (bots excluded)
+    .watch bots on|off              watch bot chats and bot messages (off by default)
     .watch groups on|off            watch every group / supergroup
     .watch edits on|off             also report edited messages
     .watch media on|off             cache media so deleted files can be re-sent
@@ -32,6 +33,7 @@ _FALSE = {"off", "0", "no", "false", "disable"}
 _TOGGLES = {
     "private": "private",
     "groups": "groups",
+    "bots": "bots",
     "edits": "edits",
     "media": "media",
     "ttl": "ttl",
@@ -39,8 +41,9 @@ _TOGGLES = {
     "own": "own",
 }
 _LABELS = {
-    "private": "All private chats",
-    "groups": "All groups",
+    "private": "All private chats (not bots)",
+    "groups": "All groups (not bot messages)",
+    "bots": "Bots (bot chats and bot messages)",
     "edits": "Report edits",
     "media": "Cache media",
     "ttl": "Save timed media",
@@ -137,7 +140,7 @@ async def watch_cmd(ctx: CommandContext):
             except Exception:  # noqa: BLE001 - names are decoration only
                 pass
             lines.append(f"{chat_id}  {title}".rstrip())
-        extras = [f"{_LABELS[k]}: {_flag(guard.config[k])}" for k in ("private", "groups")]
+        extras = [f"{_LABELS[k]}: {_flag(guard.config[k])}" for k in ("private", "groups", "bots")]
         return await ctx.reply(ascii.frame("Watched chats", (lines or ["(none)"]) + [""] + extras))
 
     if action == "find":

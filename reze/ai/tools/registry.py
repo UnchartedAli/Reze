@@ -17,6 +17,7 @@ import json
 import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from reze.timeutil import utcnow as _utcnow
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from reze.ai import budget
@@ -242,7 +243,7 @@ class ToolRegistry:
             raise ToolError(f"Tool '{tool_name}' reached its daily limit.")
 
         code = f"{secrets.randbelow(900000) + 100000}"
-        expires = (datetime.utcnow() + timedelta(minutes=APPROVAL_TTL_MINUTES)).strftime(
+        expires = (_utcnow() + timedelta(minutes=APPROVAL_TTL_MINUTES)).strftime(
             "%Y-%m-%d %H:%M:%S"
         )
         approval_id = db.execute(
@@ -341,7 +342,7 @@ class ToolRegistry:
     @staticmethod
     def _expired(value: Any) -> bool:
         try:
-            return datetime.strptime(str(value)[:19], "%Y-%m-%d %H:%M:%S") < datetime.utcnow()
+            return datetime.strptime(str(value)[:19], "%Y-%m-%d %H:%M:%S") < _utcnow()
         except (ValueError, TypeError):
             return True
 

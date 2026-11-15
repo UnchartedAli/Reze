@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from reze.timeutil import utcnow as _utcnow
 from typing import Any, Dict
 
 from reze.config import settings
@@ -14,7 +15,7 @@ class BudgetExceeded(Exception):
 
 
 def _day() -> str:
-    return datetime.utcnow().strftime("%Y-%m-%d")
+    return _utcnow().strftime("%Y-%m-%d")
 
 
 def used_today() -> int:

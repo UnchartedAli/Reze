@@ -1,6 +1,7 @@
 """Self-maintenance and Security Sentinel commands (both OFF by default)."""
 
 from datetime import datetime
+from reze.timeutil import utcnow as _utcnow
 
 from reze.command_router import CommandContext, router
 from reze.database import db
@@ -134,7 +135,7 @@ async def sentinel_cmd(ctx: CommandContext):
                     f"Open: {summary['total']}",
                     f"Critical: {summary['critical']}",
                     f"Warnings: {summary['warning']}",
-                    f"Checked at: {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC",
+                    f"Checked at: {_utcnow().strftime('%Y-%m-%d %H:%M')} UTC",
                 ],
             )
         )

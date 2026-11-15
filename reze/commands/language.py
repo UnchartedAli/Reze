@@ -1,6 +1,7 @@
 """Language selection (English / Persian) with optional Jalali dates."""
 
 from datetime import datetime
+from reze.timeutil import utcnow as _utcnow
 
 from reze.command_router import CommandContext, router
 from reze.localization import LANGUAGES, format_date, get_language, is_rtl, set_language
@@ -22,7 +23,7 @@ CATEGORY = "Settings"
 async def language_cmd(ctx: CommandContext):
     if not ctx.args:
         current = get_language()
-        today = datetime.utcnow()
+        today = _utcnow()
         lines = [
             f"Current: {current} ({LANGUAGES.get(current, current)})",
             f"Direction: {'right-to-left' if is_rtl(current) else 'left-to-right'}",

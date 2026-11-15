@@ -87,6 +87,11 @@ def run_migrations(
             version = migration.version
             continue
         logger.info("Applying database migration %d (%s)", migration.version, migration.name)
+        # Python's sqlite3 runs DDL (CREATE TABLE, ...) outside a transaction unless one is
+        # opened explicitly. Open one here so a failed migration rolls back its tables too.
+        if conn.in_transaction:
+            conn.commit()
+        conn.execute("BEGIN IMMEDIATE")
         try:
             migration.apply(conn)
             conn.execute(

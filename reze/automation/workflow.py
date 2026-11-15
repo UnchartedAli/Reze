@@ -11,6 +11,7 @@ import asyncio
 import json
 import uuid
 from datetime import datetime, timedelta
+from reze.timeutil import utcnow as _utcnow
 from typing import Any, Dict, List, Optional
 
 from reze.automation.simulator import SimulationError, parse_steps, render, simulate
@@ -32,7 +33,7 @@ class WorkflowError(Exception):
 
 
 def _stamp(moment: Optional[datetime] = None) -> str:
-    return (moment or datetime.utcnow()).strftime("%Y-%m-%d %H:%M:%S")
+    return (moment or _utcnow()).strftime("%Y-%m-%d %H:%M:%S")
 
 
 class WorkflowService(Service):
@@ -179,7 +180,7 @@ class WorkflowService(Service):
             raise WorkflowError("This workflow is disabled.")
 
         context = dict(context or {})
-        context.setdefault("date", datetime.utcnow().strftime("%Y-%m-%d"))
+        context.setdefault("date", _utcnow().strftime("%Y-%m-%d"))
         context.setdefault("owner_id", settings.owner_id)
 
         if run_id is None:
@@ -375,7 +376,7 @@ class WorkflowService(Service):
             minutes = int(step.get("minutes") or 0)
             if minutes <= 0:
                 raise WorkflowError("minutes must be positive.")
-            due = datetime.utcnow() + timedelta(minutes=minutes)
+            due = _utcnow() + timedelta(minutes=minutes)
             reminder_id = db.add_reminder(
                 int(settings.owner_id), int(settings.owner_id), render(step.get("text", ""), context), due
             )
@@ -393,7 +394,7 @@ class WorkflowService(Service):
     async def tick(self, now: Optional[datetime] = None) -> List[str]:
         if not self.available():
             return []
-        now = now or datetime.utcnow()
+        now = now or _utcnow()
         started = []
         for row in db.query("SELECT * FROM workflows WHERE enabled = 1"):
             trigger = str(row.get("trigger_type") or "manual")

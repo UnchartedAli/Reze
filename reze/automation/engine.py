@@ -22,6 +22,7 @@ import json
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
+from reze.timeutil import utcnow as _utcnow
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
@@ -379,7 +380,7 @@ class AutomationEngine:
                 chat_id=target or 0,
                 user_id=int(settings.owner_id or 0),
                 text=text or "(reminder)",
-                due_at=datetime.utcnow() + timedelta(minutes=1),
+                due_at=_utcnow() + timedelta(minutes=1),
             )
             return
 
