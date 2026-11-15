@@ -84,6 +84,13 @@ def destroy_session(token: str) -> None:
     ACTIVE_SESSIONS.pop(token, None)
 
 
+def destroy_all_sessions() -> int:
+    """Sign out every panel session, including the current one. Returns how many were removed."""
+    count = len(ACTIVE_SESSIONS)
+    ACTIVE_SESSIONS.clear()
+    return count
+
+
 def validate_csrf(session: Optional[Dict[str, Any]], token: str) -> bool:
     """Verify a CSRF token against the one bound to the session."""
     if not session or not token:

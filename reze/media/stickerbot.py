@@ -14,6 +14,7 @@ Sets are homogeneous, so images go to ``reze_<id>_s<N>`` and video stickers to
 ``reze_<id>_v<N>`` (N grows automatically when a set is full).
 """
 
+import asyncio
 import json
 import os
 import re
@@ -22,6 +23,9 @@ from typing import Any, Dict, Optional, Tuple
 
 from reze.core import http
 from reze.exceptions import MediaError
+from reze.integrations import watchdog
+from reze.logging_config import logger
+from reze.storage import secret_store
 
 API_HOST = "api.telegram.org"
 MAX_STICKERS_PER_SET = 120
@@ -32,8 +36,36 @@ class StickerBotError(MediaError):
     """A Bot API refusal, phrased for the owner."""
 
 
+#: The bot that owns Reze's sticker sets. Default: the Watchdog bot. Override with REZE_STICKER_BOT_USERNAME.
+DEFAULT_STICKER_BOT = "watchdogappbot"
+STICKER_SECRET = "sticker_bot_token"
+ENV_TOKEN = "REZE_STICKER_BOT_TOKEN"
+
+
+def expected_username() -> str:
+    override = os.environ.get("REZE_STICKER_BOT_USERNAME", "").strip().lstrip("@")
+    return override or DEFAULT_STICKER_BOT
+
+
+def _announce(text: str) -> None:
+    """Tell the Watchdog bot about a sticker event. Fire-and-forget; never blocks or raises."""
+    try:
+        asyncio.get_running_loop().create_task(watchdog.send_event("sticker", text))
+    except RuntimeError:
+        pass
+
+
 def token() -> Optional[str]:
-    value = os.environ.get("REZE_STICKER_BOT_TOKEN", "").strip()
+    """The sticker bot token: from the encrypted store, or from the environment (imported once if possible)."""
+    secret_store.import_from_env(STICKER_SECRET, ENV_TOKEN)
+    try:
+        stored = secret_store.read(STICKER_SECRET)
+    except secret_store.SecretStoreError as exc:
+        logger.warning("Sticker bot: %s", exc)
+        stored = None
+    if stored:
+        return stored
+    value = os.environ.get(ENV_TOKEN, "").strip()
     return value or None
 
 
@@ -64,9 +96,17 @@ async def api(bot_token: str, method: str, fields: Optional[Dict[str, str]] = No
 
 
 async def bot_username(bot_token: str) -> str:
+    """The bot's username. Refuses any token that does not belong to the expected sticker bot."""
     if bot_token not in _username_cache:
         me = await api(bot_token, "getMe")
-        _username_cache[bot_token] = str(me["username"])
+        username = str(me["username"])
+        wanted = expected_username()
+        if username.lower() != wanted.lower():
+            raise StickerBotError(
+                f"This token belongs to @{username}, not @{wanted}. "
+                "Use that bot's token, or set REZE_STICKER_BOT_USERNAME."
+            )
+        _username_cache[bot_token] = username
     return _username_cache[bot_token]
 
 
@@ -158,6 +198,7 @@ async def create_named_pack(owner_id: int, title: str, path: str, emoji: str, vi
     username = await bot_username(bot_token)
     name = short_name(owner_id, video, 0, username, tag=uuid.uuid4().hex[:8])
     await create_set(bot_token, owner_id, name, title, path, emoji, video)
+    _announce("A new sticker pack was created.")
     return name
 
 

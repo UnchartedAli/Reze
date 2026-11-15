@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from reze.timeutil import utcnow as _utcnow
 from typing import Any, Dict
 
 from reze.config import settings
@@ -11,7 +12,7 @@ from reze.logging_config import logger
 
 
 def _cutoff(days: int) -> str:
-    return (datetime.utcnow() - timedelta(days=max(1, int(days)))).strftime("%Y-%m-%d %H:%M:%S")
+    return (_utcnow() - timedelta(days=max(1, int(days)))).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def policies() -> Dict[str, int]:

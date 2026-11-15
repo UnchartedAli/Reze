@@ -42,6 +42,7 @@ from reze.web.auth import (
     check_rate_limit,
     create_session,
     csrf_token_for,
+    destroy_all_sessions,
     destroy_session,
     get_session,
     record_failed_login,
@@ -81,11 +82,29 @@ class RezePanelHandler(BaseHTTPRequestHandler):
         return get_session(self.auth_token())
 
     def client_ip(self) -> str:
+        """Address used for login rate limiting.
+
+        Forwarding headers are read only when ``REZE_WEB_TRUST_PROXY`` is on, and
+        only from the trusted proxy's point of view:
+
+        * ``CF-Connecting-IP`` and ``X-Real-IP`` are set by the proxy, which
+          overwrites any client-supplied value.
+        * ``X-Forwarded-For`` is read from its LAST entry. The first entry is
+          chosen by the client, so using it lets an attacker rotate addresses
+          and bypass the login rate limit.
+
+        The origin must be reachable only through the proxy. A directly reachable
+        origin with trust enabled can still be spoofed.
+        """
         if settings.web_trust_proxy:
-            for header in ("CF-Connecting-IP", "X-Real-IP", "X-Forwarded-For"):
-                value = self.headers.get(header)
+            for header in ("CF-Connecting-IP", "X-Real-IP"):
+                value = (self.headers.get(header) or "").strip()
                 if value:
-                    return value.split(",")[0].strip()
+                    return value
+            forwarded = (self.headers.get("X-Forwarded-For") or "").split(",")
+            last = forwarded[-1].strip() if forwarded else ""
+            if last:
+                return last
         return self.client_address[0] if self.client_address else "unknown"
 
     def is_https(self) -> bool:
@@ -279,6 +298,37 @@ class RezePanelHandler(BaseHTTPRequestHandler):
             return self.page(
                 "Security", pages.security({"groups": self.group_rows()}, csrf), "security"
             )
+        if path == "/consent":
+            from reze import consent as consent_mod
+            from reze.web.theme import panel_language
+            language = panel_language()
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query, keep_blank_values=True)
+            return self.page("Consent", pages.consent_page(consent_mod.status(), csrf, language,
+                                                       message=(query.get("msg", [""])[0])[:200],
+                                                       error=(query.get("err", [""])[0])[:200]), "consent")
+        if path == "/digest":
+            from reze.digest import panel as digest_panel
+            from reze.web.theme import panel_language
+            language = panel_language()
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query, keep_blank_values=True)
+            state = digest_panel.build_state(
+                query,
+                language,
+                message=(query.get("msg", [""])[0])[:200],
+                error=(query.get("err", [""])[0])[:200],
+            )
+            return self.page("Channel Digest", pages.digest_page(state, csrf, language), "digest")
+        if path == "/style":
+            from reze.style import panel as style_panel
+            from reze.web.theme import panel_language
+            language = panel_language()
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            state = style_panel.build_state(
+                language,
+                message=(query.get("msg", [""])[0])[:200],
+                error=(query.get("err", [""])[0])[:200],
+            )
+            return self.page("Style Assistant", pages.style_page(state, csrf, language), "style")
         if path == "/automations":
             rules = [rule.to_dict() for rule in automation_engine.rules()]
             return self.page(
@@ -367,6 +417,10 @@ class RezePanelHandler(BaseHTTPRequestHandler):
         if path == "/logout":
             destroy_session(self.auth_token())
             return self.redirect("/login", self.session_cookie("", max_age=0))
+        if path == "/logout-all":
+            removed = destroy_all_sessions()
+            logger.info("Signed out %d panel session(s) on request.", removed)
+            return self.redirect("/login", self.session_cookie("", max_age=0))
         if path == "/settings/save":
             return self.handle_settings_save(form, session)
         if path == "/features/toggle":
@@ -381,6 +435,12 @@ class RezePanelHandler(BaseHTTPRequestHandler):
             return self.handle_productivity_delete(form)
         if path == "/automations/create":
             return self.handle_automation_create(form)
+        if path in ("/consent/grant", "/consent/revoke"):
+            return self.handle_consent_action(path, form)
+        if path in ("/digest/settings", "/digest/toggle", "/digest/channel", "/digest/channel/remove", "/digest/run", "/digest/clear"):
+            return self.handle_digest_action(path, form)
+        if path in ("/style/settings", "/style/auto", "/style/block", "/style/forget"):
+            return self.handle_style_action(path, form)
         if path == "/automations/toggle":
             return self.handle_automation_toggle(form)
         if path == "/automations/delete":
@@ -480,6 +540,64 @@ class RezePanelHandler(BaseHTTPRequestHandler):
         except Exception as exc:  # noqa: BLE001 - surfaced on the plugins page
             logger.warning("Plugin toggle failed for %s: %s", name, exc)
         return self.redirect("/plugins")
+
+    def handle_consent_action(self, path: str, form: dict):
+        """Grant or revoke one consent. CSRF is checked by do_POST before this runs."""
+        from urllib.parse import quote
+        from reze import consent as consent_mod
+        scope = form.get("scope", [""])[0]
+        try:
+            if path.endswith("/grant"):
+                consent_mod.grant(scope)
+                return self.redirect("/consent?msg=" + quote("Consent granted."))
+            consent_mod.revoke(scope)
+            return self.redirect("/consent?msg=" + quote("Consent revoked."))
+        except consent_mod.ConsentError as exc:
+            return self.redirect("/consent?err=" + quote(str(exc)))
+
+    def handle_digest_action(self, path: str, form: dict):
+        """Channel Digest panel actions. CSRF is checked by do_POST before this runs."""
+        from reze.digest import panel as digest_panel
+
+        try:
+            if path == "/digest/settings":
+                digest_panel.save_settings(form)
+                return self.redirect(digest_panel.redirect_url(message="Settings saved."))
+            if path == "/digest/toggle":
+                digest_panel.toggle(form.get("name", [""])[0], form.get("value", [""])[0])
+                return self.redirect(digest_panel.redirect_url(message="Updated."))
+            if path == "/digest/channel":
+                digest_panel.update_channel(form)
+                return self.redirect(digest_panel.redirect_url(message="Channel saved."))
+            if path == "/digest/channel/remove":
+                digest_panel.remove_channel(form)
+                return self.redirect(digest_panel.redirect_url(message="Channel removed."))
+            if path == "/digest/run":
+                digest_panel.request_run()
+                return self.redirect(digest_panel.redirect_url(message="Digest requested; it will be sent within about a minute."))
+            digest_panel.clear_history(form.get("confirm", [""])[0])
+            return self.redirect(digest_panel.redirect_url(message="Digest history deleted."))
+        except (ValueError, TypeError) as exc:
+            return self.redirect(digest_panel.redirect_url(error=str(exc)))
+
+    def handle_style_action(self, path: str, form: dict):
+        """Style Assistant panel actions. CSRF is checked by do_POST before this runs."""
+        from reze.style import panel as style_panel
+
+        try:
+            if path == "/style/settings":
+                style_panel.save_settings(form)
+                return self.redirect(style_panel.redirect_url(message="Settings saved."))
+            if path == "/style/auto":
+                style_panel.set_auto(form.get("action", [""])[0])
+                return self.redirect(style_panel.redirect_url(message="Auto-reply updated."))
+            if path == "/style/block":
+                style_panel.block_chat(form.get("chat_id", [""])[0])
+                return self.redirect(style_panel.redirect_url(message="Chat removed from the allow list."))
+            style_panel.forget(form.get("confirm", [""])[0])
+            return self.redirect(style_panel.redirect_url(message="Everything learned was deleted."))
+        except (ValueError, TypeError) as exc:
+            return self.redirect(style_panel.redirect_url(error=str(exc)))
 
     def handle_task_cancel(self, form: dict):
         task_id = form.get("task_id", [""])[0]

@@ -10,6 +10,7 @@ import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from reze.timeutil import utcnow as _utcnow
 from typing import Any, Dict, List
 
 from reze.config import settings
@@ -88,6 +89,25 @@ def _check_backups() -> List[Finding]:
     return []
 
 
+def _check_backup_encryption() -> List[Finding]:
+    from reze.storage.backups.service import backup_service
+
+    try:
+        rows = backup_service.list(limit=1)
+    except Exception:  # pragma: no cover
+        return []
+    if not rows or not rows[0].get("exists") or rows[0].get("encrypted"):
+        return []
+    return [
+        Finding(
+            "backups",
+            "warning",
+            "The latest backup is not encrypted",
+            "It holds the whole database in plain text. Set REZE_VAULT_KEY, then run .backup create.",
+        )
+    ]
+
+
 def _check_database() -> List[Finding]:
     try:
         with db.get_connection() as conn:
@@ -140,7 +160,7 @@ def _check_optional_features() -> List[Finding]:
 
 
 def _check_retention() -> List[Finding]:
-    cutoff = (datetime.utcnow() - timedelta(days=max(30, int(settings.audit_retention_days)))).strftime(
+    cutoff = (_utcnow() - timedelta(days=max(30, int(settings.audit_retention_days)))).strftime(
         "%Y-%m-%d %H:%M:%S"
     )
     row = db.query_one("SELECT COUNT(*) AS total FROM audit_log WHERE created_at < ?", (cutoff,))
@@ -162,6 +182,7 @@ CHECKS = (
     _check_secret_key,
     _check_vault_key,
     _check_backups,
+    _check_backup_encryption,
     _check_database,
     _check_session_permissions,
     _check_optional_features,

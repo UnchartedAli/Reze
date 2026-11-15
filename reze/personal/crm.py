@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from reze.timeutil import utcnow as _utcnow
 from typing import Any, Dict, List, Optional
 
 from reze.database import db
@@ -10,7 +11,7 @@ from reze.search import universal
 
 
 def _now() -> str:
-    return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    return _utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
 
 class CRMService:
@@ -123,7 +124,7 @@ class CRMService:
         return None
 
     def stale(self, days: int = 30, limit: int = 20) -> List[Dict[str, Any]]:
-        cutoff = (datetime.utcnow() - timedelta(days=max(1, int(days)))).strftime("%Y-%m-%d %H:%M:%S")
+        cutoff = (_utcnow() - timedelta(days=max(1, int(days)))).strftime("%Y-%m-%d %H:%M:%S")
         return db.query(
             "SELECT * FROM crm_contacts WHERE last_contact_at = '' OR last_contact_at < ? "
             "ORDER BY last_contact_at ASC LIMIT ?",

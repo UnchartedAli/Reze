@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from reze.timeutil import utcnow as _utcnow
 from typing import Any, Dict, List
 
 from reze.database import db
@@ -18,7 +19,7 @@ from reze.personal.writing import writing_service
 
 
 def _cutoff(days: int) -> str:
-    return (datetime.utcnow() - timedelta(days=max(1, int(days)))).strftime("%Y-%m-%d %H:%M:%S")
+    return (_utcnow() - timedelta(days=max(1, int(days)))).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def snapshot(days: int = 7) -> Dict[str, Any]:

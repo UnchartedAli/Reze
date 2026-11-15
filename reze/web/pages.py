@@ -613,3 +613,425 @@ def security(state: dict, csrf: str) -> str:
 </ul>
 </div>
 """
+
+
+STYLE_TEXT = {
+    "en": {
+        "title": "Style Assistant",
+        "sub": "Learns your own writing style. Drafts wait for your approval. Automatic replies are always labelled as automated.",
+        "status": "Status",
+        "feature": "Feature",
+        "auto": "Automatic replies",
+        "learned": "Learned messages",
+        "replies24": "Automatic replies in the last 24 hours",
+        "profile": "Your style",
+        "not_enabled": "The feature is OFF. Turn it on below, or with .features enable style_assistant confirm.",
+        "enable": "Enable feature",
+        "confirm": "I understand that drafts and automatic replies are sent from my account",
+        "on": "ON",
+        "off": "OFF",
+        "turn_on": "Turn auto-reply on",
+        "turn_off": "Turn auto-reply off",
+        "settings": "Settings",
+        "quiet_start": "Quiet hours start (HH:MM)",
+        "quiet_end": "Quiet hours end (HH:MM)",
+        "timezone": "Timezone",
+        "cooldown": "Cooldown per chat (hours)",
+        "cap": "Hourly cap (all chats)",
+        "active": "Skip if you were active in the chat within (minutes)",
+        "language": "Language of the label and prompts",
+        "save": "Save settings",
+        "allowed": "Allowed private chats",
+        "allowed_empty": "No chats allowed. Add one with .style auto allow @username in Telegram.",
+        "remove": "Remove",
+        "drafts": "Pending drafts",
+        "drafts_empty": "No pending drafts. Create one with .style draft as a reply in Telegram.",
+        "drafts_note": "Send a draft from Telegram with .style send <id>. The panel cannot send messages.",
+        "forget": "Forget everything",
+        "forget_note": "Deletes learned messages, profile, drafts, the allow list and the auto-reply log, and turns auto-reply off.",
+        "forget_button": "Delete everything learned",
+        "telegram_only": "Learning from chats, adding allowed chats and sending drafts need the live Telegram connection, so they stay in the commands.",
+        "learn_hint": ".style learn @username 200",
+    },
+    "fa": {
+        "title": "دستیار سبک نوشتن",
+        "sub": "سبک نوشتن خودِ شما را یاد می‌گیرد. پیش‌نویس‌ها منتظر تأیید شما می‌مانند. پاسخ‌های خودکار همیشه با برچسب «خودکار» ارسال می‌شوند.",
+        "status": "وضعیت",
+        "feature": "قابلیت",
+        "auto": "پاسخ خودکار",
+        "learned": "پیام‌های یادگرفته‌شده",
+        "replies24": "پاسخ‌های خودکار در ۲۴ ساعت گذشته",
+        "profile": "سبک شما",
+        "not_enabled": "این قابلیت خاموش است. از پایین روشنش کنید یا با دستور .features enable style_assistant confirm.",
+        "enable": "روشن کردن قابلیت",
+        "confirm": "می‌پذیرم که پیش‌نویس‌ها و پاسخ‌های خودکار از حساب من ارسال می‌شوند",
+        "on": "روشن",
+        "off": "خاموش",
+        "turn_on": "روشن کردن پاسخ خودکار",
+        "turn_off": "خاموش کردن پاسخ خودکار",
+        "settings": "تنظیمات",
+        "quiet_start": "شروع ساعت سکوت (HH:MM)",
+        "quiet_end": "پایان ساعت سکوت (HH:MM)",
+        "timezone": "منطقهٔ زمانی",
+        "cooldown": "فاصلهٔ هر گفتگو (ساعت)",
+        "cap": "سقف ساعتی (همهٔ گفتگوها)",
+        "active": "اگر در این گفتگو در این مدت (دقیقه) فعال بودید، پاسخ نده",
+        "language": "زبان برچسب و دستورها",
+        "save": "ذخیرهٔ تنظیمات",
+        "allowed": "گفتگوهای خصوصی مجاز",
+        "allowed_empty": "گفتگوی مجازی وجود ندارد. با دستور .style auto allow @username در تلگرام اضافه کنید.",
+        "remove": "حذف",
+        "drafts": "پیش‌نویس‌های در انتظار",
+        "drafts_empty": "پیش‌نویسی در انتظار نیست. با .style draft در تلگرام یکی بسازید.",
+        "drafts_note": "پیش‌نویس را از تلگرام با .style send <id> بفرستید. پنل نمی‌تواند پیام بفرستد.",
+        "forget": "فراموش کردن همه‌چیز",
+        "forget_note": "پیام‌های یادگرفته‌شده، سبک، پیش‌نویس‌ها، فهرست مجاز و گزارش پاسخ‌ها حذف می‌شوند و پاسخ خودکار خاموش می‌شود.",
+        "forget_button": "حذف همهٔ داده‌های یادگرفته‌شده",
+        "telegram_only": "یادگیری از گفتگوها، افزودن گفتگوی مجاز و ارسال پیش‌نویس به اتصال زندهٔ تلگرام نیاز دارد و در دستورها باقی می‌ماند.",
+        "learn_hint": ".style learn @username 200",
+    },
+}
+
+
+def style_page(state: dict, csrf: str, language: str = "en") -> str:
+    t = STYLE_TEXT.get(language, STYLE_TEXT["en"])
+    rtl = language == "fa"
+    yes_no = lambda flag: pill(t["on"] if flag else t["off"], "ok" if flag else "off")  # noqa: E731
+
+    banner_html = ""
+    if state.get("message"):
+        banner_html = f'<div class="card"><strong>{esc(state["message"])}</strong></div>'
+    if state.get("error"):
+        banner_html = f'<div class="card"><strong class="danger">{esc(state["error"])}</strong></div>'
+
+    feature_block = ""
+    if not state["feature_on"]:
+        feature_block = (
+            f'<div class="card"><p class="muted">{esc(t["not_enabled"])}</p>'
+            f'<form method="POST" action="/features/toggle">{csrf_field(csrf)}'
+            f'<input type="hidden" name="key" value="style_assistant">'
+            f'<input type="hidden" name="action" value="enable">'
+            f'<label><input type="checkbox" name="confirm" value="yes"> {esc(t["confirm"])}</label>'
+            f'<button>{esc(t["enable"])}</button></form></div>'
+        )
+
+    s = state["settings"]
+    auto_toggle = (
+        f'<form method="POST" action="/style/auto">{csrf_field(csrf)}'
+        f'<input type="hidden" name="action" value="{"off" if s["auto_enabled"] else "on"}">'
+        f'<button class="{"danger" if s["auto_enabled"] else ""}">'
+        f'{esc(t["turn_off"] if s["auto_enabled"] else t["turn_on"])}</button></form>'
+    )
+
+    profile_items = "".join(f"<li>{esc(line)}</li>" for line in state["profile_lines"])
+
+    allowed_rows = "".join(
+        f"<tr><td>{esc(row.get('title') or row['chat_id'])}</td>"
+        f"<td class=\"muted\">{esc(row.get('last_reply_at') or '—')}</td>"
+        f'<td><form method="POST" action="/style/block">{csrf_field(csrf)}'
+        f'<input type="hidden" name="chat_id" value="{esc(row["chat_id"])}">'
+        f'<button class="danger">{esc(t["remove"])}</button></form></td></tr>'
+        for row in state["allowed"]
+    ) or f'<tr><td colspan="3" class="muted">{esc(t["allowed_empty"])}</td></tr>'
+
+    draft_rows = "".join(
+        f"<tr><td><code>#{esc(row['id'])}</code></td><td class=\"muted\">{esc(row['chat_id'])}</td>"
+        f"<td class=\"muted\">{esc(row['created_at'])}</td><td>{esc(row['draft'])}</td></tr>"
+        for row in state["drafts"]
+    ) or f'<tr><td colspan="4" class="muted">{esc(t["drafts_empty"])}</td></tr>'
+
+    def field(name, label, value, kind="text"):
+        return (
+            f'<label>{esc(label)}<input type="{kind}" name="{name}" value="{esc(value)}"></label>'
+        )
+
+    language_options = "".join(
+        f'<option value="{code}"{" selected" if s["language"] == code else ""}>{name}</option>'
+        for code, name in (("en", "English"), ("fa", "فارسی"))
+    )
+
+    settings_form = (
+        f'<form method="POST" action="/style/settings">{csrf_field(csrf)}'
+        + field("quiet_start", t["quiet_start"], s.get("quiet_start") or "")
+        + field("quiet_end", t["quiet_end"], s.get("quiet_end") or "")
+        + field("timezone", t["timezone"], s.get("timezone") or "UTC")
+        + field("cooldown_hours", t["cooldown"], s.get("cooldown_hours") or 6, "number")
+        + field("hourly_cap", t["cap"], s.get("hourly_cap") or 10, "number")
+        + field("owner_active_minutes", t["active"], s.get("owner_active_minutes") or 30, "number")
+        + f'<label>{esc(t["language"])}<select name="language">{language_options}</select></label>'
+        + f'<button>{esc(t["save"])}</button></form>'
+    )
+
+    body = f"""
+<div class="{'rtl' if rtl else ''}">
+<h1>{esc(t["title"])}</h1>
+<p class="sub">{esc(t["sub"])}</p>
+{banner_html}
+{feature_block}
+<div class="card">
+<h2>{esc(t["status"])}</h2>
+<table>
+<tr><td>{esc(t["feature"])}</td><td>{yes_no(state["feature_on"])}</td></tr>
+<tr><td>{esc(t["auto"])}</td><td>{yes_no(s["auto_enabled"])} {auto_toggle}</td></tr>
+<tr><td>{esc(t["learned"])}</td><td>{esc(state["samples"])}</td></tr>
+<tr><td>{esc(t["replies24"])}</td><td>{esc(state["replies_24h"])}</td></tr>
+</table>
+<p class="muted">{esc(t["telegram_only"])} <code>{esc(t["learn_hint"])}</code></p>
+</div>
+<div class="card"><h2>{esc(t["profile"])}</h2><ul>{profile_items}</ul></div>
+<div class="card"><h2>{esc(t["settings"])}</h2>{settings_form}</div>
+<div class="card"><h2>{esc(t["allowed"])}</h2>
+<table><tr><th>Chat</th><th>Last reply</th><th></th></tr>{allowed_rows}</table></div>
+<div class="card"><h2>{esc(t["drafts"])}</h2>
+<p class="muted">{esc(t["drafts_note"])}</p>
+<table><tr><th>ID</th><th>Chat</th><th>Created (UTC)</th><th>Draft</th></tr>{draft_rows}</table></div>
+<div class="card danger-zone"><h2>{esc(t["forget"])}</h2>
+<p class="muted">{esc(t["forget_note"])}</p>
+<form method="POST" action="/style/forget">{csrf_field(csrf)}
+<label><input type="checkbox" name="confirm" value="yes"> {esc(t["confirm"])}</label>
+<button class="danger">{esc(t["forget_button"])}</button></form></div>
+</div>
+"""
+    return body
+
+
+DIGEST_TEXT = {
+    "en": {
+        "title": "Channel Digest",
+        "sub": "Summaries of the channels you select, sent to your Saved Messages at the time you choose. Off until you turn it on.",
+        "feature": "Feature", "digest": "Digest", "paused": "Paused", "ai": "AI summaries",
+        "next": "Next digest", "last": "Last run", "pending": "Undelivered digests",
+        "on": "ON", "off": "OFF", "yes": "yes", "no": "no",
+        "not_enabled": "The feature is OFF. Enable it below, or with .features enable channel_digest confirm.",
+        "enable": "Enable feature",
+        "confirm": "I understand that digests are built from the channels I select and sent to my Saved Messages",
+        "turn_on": "Turn digest on", "turn_off": "Turn digest off",
+        "pause": "Pause scheduled digests", "resume": "Resume scheduled digests",
+        "ai_on": "Turn AI summaries on", "ai_off": "Turn AI summaries off",
+        "ai_note": "The AI provider is chosen in the AI settings. Turning AI on or off here only affects this digest.",
+        "settings": "Schedule and limits",
+        "time": "Delivery time (HH:MM)", "timezone": "Timezone", "schedule": "Schedule",
+        "days": "Days (for weekly or custom: e.g. fri or mon,thu)", "max_messages": "Posts per digest",
+        "max_chars": "Digest length (characters)", "language": "Language", "save": "Save settings",
+        "run": "Generate now", "run_note": "Sends one digest on the next check (about a minute). Works while scheduled digests are paused.",
+        "channels": "Selected channels", "search": "Search channels", "search_button": "Search",
+        "priority": "Priority (1 = first)", "include": "Include keywords", "exclude": "Exclude keywords",
+        "enabled": "Read this channel", "save_channel": "Save", "remove": "Remove",
+        "channels_empty": "No channels selected. Add one in Telegram with .digest add @channel.",
+        "history": "Recent runs", "history_empty": "No digests yet.",
+        "clear": "Delete digest history", "clear_note": "Deletes run history and any digest text not yet delivered. Channel selections are kept.",
+        "clear_button": "Delete history",
+        "telegram_only": "Adding channels and reading their posts need the live Telegram connection, so they stay in the commands.",
+    },
+    "fa": {
+        "title": "خلاصهٔ کانال‌ها",
+        "sub": "خلاصهٔ کانال‌های انتخابی شما، در زمانی که تعیین می‌کنید به پیام‌های ذخیره‌شده فرستاده می‌شود. تا روشن نکنید خاموش است.",
+        "feature": "قابلیت", "digest": "خلاصه", "paused": "متوقف", "ai": "خلاصهٔ هوش مصنوعی",
+        "next": "خلاصهٔ بعدی", "last": "آخرین اجرا", "pending": "خلاصه‌های ارسال‌نشده",
+        "on": "روشن", "off": "خاموش", "yes": "بله", "no": "خیر",
+        "not_enabled": "این قابلیت خاموش است. از پایین روشنش کنید یا با .features enable channel_digest confirm.",
+        "enable": "روشن کردن قابلیت",
+        "confirm": "می‌پذیرم که خلاصه‌ها از کانال‌های انتخابی من ساخته و به پیام‌های ذخیره‌شده فرستاده می‌شوند",
+        "turn_on": "روشن کردن خلاصه", "turn_off": "خاموش کردن خلاصه",
+        "pause": "توقف خلاصه‌های زمان‌بندی‌شده", "resume": "ادامهٔ خلاصه‌های زمان‌بندی‌شده",
+        "ai_on": "روشن کردن خلاصهٔ هوش مصنوعی", "ai_off": "خاموش کردن خلاصهٔ هوش مصنوعی",
+        "ai_note": "ارائه‌دهندهٔ هوش مصنوعی در تنظیمات هوش مصنوعی انتخاب می‌شود. این گزینه فقط بر همین خلاصه اثر دارد.",
+        "settings": "زمان‌بندی و محدودیت‌ها",
+        "time": "ساعت ارسال (HH:MM)", "timezone": "منطقهٔ زمانی", "schedule": "برنامه",
+        "days": "روزها (برای هفتگی یا سفارشی: مثلاً fri یا mon,thu)", "max_messages": "تعداد پست در هر خلاصه",
+        "max_chars": "طول خلاصه (نویسه)", "language": "زبان", "save": "ذخیرهٔ تنظیمات",
+        "run": "ساخت همین حالا", "run_note": "یک خلاصه در بررسی بعدی (حدود یک دقیقه) ارسال می‌شود. حتی وقتی زمان‌بندی متوقف است کار می‌کند.",
+        "channels": "کانال‌های انتخابی", "search": "جست‌وجوی کانال", "search_button": "جست‌وجو",
+        "priority": "اولویت (۱ = اول)", "include": "واژه‌های الزامی", "exclude": "واژه‌های حذفی",
+        "enabled": "خواندن این کانال", "save_channel": "ذخیره", "remove": "حذف",
+        "channels_empty": "کانالی انتخاب نشده. در تلگرام با .digest add @channel اضافه کنید.",
+        "history": "اجراهای اخیر", "history_empty": "هنوز خلاصه‌ای نیست.",
+        "clear": "حذف تاریخچهٔ خلاصه", "clear_note": "تاریخچهٔ اجرا و متن خلاصه‌های ارسال‌نشده حذف می‌شود. انتخاب کانال‌ها نگه داشته می‌شود.",
+        "clear_button": "حذف تاریخچه",
+        "telegram_only": "افزودن کانال و خواندن پست‌ها به اتصال زندهٔ تلگرام نیاز دارد و در دستورها باقی می‌ماند.",
+    },
+}
+
+
+def digest_page(state: dict, csrf: str, language: str = "en") -> str:
+    t = DIGEST_TEXT.get(language, DIGEST_TEXT["en"])
+    rtl = language == "fa"
+    cfg = state["config"]
+    flag = lambda on: pill(t["on"] if on else t["off"], "ok" if on else "off")  # noqa: E731
+
+    banner_html = ""
+    if state.get("message"):
+        banner_html = f'<div class="card"><strong>{esc(state["message"])}</strong></div>'
+    if state.get("error"):
+        banner_html = f'<div class="card"><strong class="danger">{esc(state["error"])}</strong></div>'
+
+    feature_block = ""
+    if not state["feature_on"]:
+        feature_block = (
+            f'<div class="card"><p class="muted">{esc(t["not_enabled"])}</p>'
+            f'<form method="POST" action="/features/toggle">{csrf_field(csrf)}'
+            f'<input type="hidden" name="key" value="channel_digest">'
+            f'<input type="hidden" name="action" value="enable">'
+            f'<label><input type="checkbox" name="confirm" value="yes"> {esc(t["confirm"])}</label>'
+            f'<button>{esc(t["enable"])}</button></form></div>'
+        )
+
+    def toggle_button(name, on, on_label, off_label):
+        return (
+            f'<form method="POST" action="/digest/toggle">{csrf_field(csrf)}'
+            f'<input type="hidden" name="name" value="{name}">'
+            f'<input type="hidden" name="value" value="{"off" if on else "on"}">'
+            f'<button class="{"danger" if on else ""}">{esc(off_label if on else on_label)}</button></form>'
+        )
+
+    controls = (
+        toggle_button("enabled", cfg["enabled"], t["turn_on"], t["turn_off"])
+        + toggle_button("paused", not cfg["paused"], t["pause"], t["resume"])
+        + toggle_button("ai_enabled", cfg["ai_enabled"], t["ai_on"], t["ai_off"])
+    )
+
+    run_form = (
+        f'<form method="POST" action="/digest/run">{csrf_field(csrf)}<button>{esc(t["run"])}</button></form>'
+        if cfg["enabled"] else ""
+    )
+
+    def field(name, label, value, kind="text"):
+        return f'<label>{esc(label)}<input type="{kind}" name="{name}" value="{esc(value)}"></label>'
+
+    days_value = "" if cfg["schedule"] == "daily" else cfg["days"]
+    language_options = "".join(
+        f'<option value="{code}"{" selected" if cfg["language"] == code else ""}>{name}</option>'
+        for code, name in (("en", "English"), ("fa", "فارسی"))
+    )
+    schedule_options = "".join(
+        f'<option value="{code}"{" selected" if cfg["schedule"] == code else ""}>{code}</option>'
+        for code in ("daily", "weekly", "custom")
+    )
+    settings_form = (
+        f'<form method="POST" action="/digest/settings">{csrf_field(csrf)}'
+        + field("time_of_day", t["time"], cfg["time_of_day"])
+        + field("timezone", t["timezone"], cfg["timezone"])
+        + f'<label>{esc(t["schedule"])}<select name="schedule">{schedule_options}</select></label>'
+        + field("days", t["days"], days_value)
+        + field("max_messages", t["max_messages"], cfg["max_messages"], "number")
+        + field("max_chars", t["max_chars"], cfg["max_chars"], "number")
+        + f'<label>{esc(t["language"])}<select name="language">{language_options}</select></label>'
+        + f'<button>{esc(t["save"])}</button></form>'
+    )
+
+    search_form = (
+        f'<form method="GET" action="/digest">'
+        f'<input type="text" name="q" value="{esc(state["search"])}" placeholder="{esc(t["search"])}">'
+        f'<button>{esc(t["search_button"])}</button></form>'
+    )
+
+    channel_rows = []
+    for row in state["channels"]:
+        handle = f"@{row['username']}" if row.get("username") else str(row["chat_id"])
+        channel_rows.append(
+            f'<tr><td>{esc(row.get("title") or handle)}<div class="muted">{esc(handle)}</div></td>'
+            f'<td colspan="4"><form method="POST" action="/digest/channel" class="inline">{csrf_field(csrf)}'
+            f'<input type="hidden" name="chat_id" value="{esc(row["chat_id"])}">'
+            f'<label>{esc(t["priority"])} <input type="number" min="1" max="10" name="priority" value="{esc(row["priority"])}"></label>'
+            f'<label>{esc(t["include"])} <input type="text" name="include_keywords" value="{esc(row["include_keywords"])}"></label>'
+            f'<label>{esc(t["exclude"])} <input type="text" name="exclude_keywords" value="{esc(row["exclude_keywords"])}"></label>'
+            f'<label><input type="checkbox" name="enabled" value="1"{" checked" if row["enabled"] else ""}> {esc(t["enabled"])}</label>'
+            f'<button>{esc(t["save_channel"])}</button></form>'
+            f'<div class="muted">last sync: {esc(row.get("last_synced_at") or "—")}</div></td>'
+            f'<td><form method="POST" action="/digest/channel/remove">{csrf_field(csrf)}'
+            f'<input type="hidden" name="chat_id" value="{esc(row["chat_id"])}">'
+            f'<button class="danger">{esc(t["remove"])}</button></form></td></tr>'
+        )
+    channels_html = "".join(channel_rows) or (
+        f'<tr><td colspan="6" class="muted">{esc(t["channels_empty"])}</td></tr>'
+    )
+
+    run_rows = "".join(
+        f"<tr><td><code>#{esc(r['id'])}</code></td><td>{esc(r['kind'])}</td><td>{esc(r['status'])}</td>"
+        f"<td>{esc(r['message_count'])}</td><td>{esc(r['summary_mode'] or '—')}</td>"
+        f"<td class=\"muted\">{esc(r['finished_at'] or r['created_at'])}</td>"
+        f"<td class=\"muted\">{esc(r['last_error'] or '')}</td></tr>"
+        for r in state["runs"]
+    ) or f'<tr><td colspan="7" class="muted">{esc(t["history_empty"])}</td></tr>'
+
+    last = state["last_run"]
+    last_text = f"{last['status']} · {last['finished_at'] or last['created_at']}" if last else "—"
+    body = f"""
+<div class="{'rtl' if rtl else ''}">
+<h1>{esc(t["title"])}</h1>
+<p class="sub">{esc(t["sub"])}</p>
+{banner_html}
+{feature_block}
+<div class="card">
+<table>
+<tr><td>{esc(t["feature"])}</td><td>{flag(state["feature_on"])}</td></tr>
+<tr><td>{esc(t["digest"])}</td><td>{flag(cfg["enabled"])} {"<span class='pill off'>" + esc(t["paused"]) + "</span>" if cfg["paused"] and cfg["enabled"] else ""}</td></tr>
+<tr><td>{esc(t["ai"])}</td><td>{flag(cfg["ai_enabled"])}</td></tr>
+<tr><td>{esc(t["next"])}</td><td>{esc(state["next_slot"] or "—")}</td></tr>
+<tr><td>{esc(t["last"])}</td><td>{esc(last_text)}</td></tr>
+<tr><td>{esc(t["pending"])}</td><td>{esc(state["pending"])}</td></tr>
+</table>
+<div class="actions">{controls}</div>
+<p class="muted">{esc(t["ai_note"])}</p>
+</div>
+<div class="card"><h2>{esc(t["run"])}</h2>
+<p class="muted">{esc(t["run_note"])}</p>{run_form}</div>
+<div class="card"><h2>{esc(t["settings"])}</h2>{settings_form}</div>
+<div class="card"><h2>{esc(t["channels"])} ({esc(state["channel_total"])})</h2>
+{search_form}
+<table><tr><th>Channel</th><th colspan="4"></th><th></th></tr>{channels_html}</table>
+<p class="muted">{esc(t["telegram_only"])}</p></div>
+<div class="card"><h2>{esc(t["history"])}</h2>
+<table><tr><th>ID</th><th>Kind</th><th>Status</th><th>Posts</th><th>Summary</th><th>Time (UTC)</th><th>Note</th></tr>{run_rows}</table></div>
+<div class="card danger-zone"><h2>{esc(t["clear"])}</h2>
+<p class="muted">{esc(t["clear_note"])}</p>
+<form method="POST" action="/digest/clear">{csrf_field(csrf)}
+<label><input type="checkbox" name="confirm" value="yes"> {esc(t["clear"])}</label>
+<button class="danger">{esc(t["clear_button"])}</button></form></div>
+</div>
+"""
+    return body
+
+
+
+CONSENT_TEXT = {
+    "en": {"title": "Consent", "sub": "Nothing leaves Reze without your consent. You can revoke any of these at any time.",
+           "granted": "Granted", "not_granted": "Not granted", "grant": "Grant", "revoke": "Revoke", "since": "since"},
+    "fa": {"title": "رضایت", "sub": "بدون رضایت شما چیزی از ریزه خارج نمی‌شود. هر کدام را هر وقت خواستی لغو کن.",
+           "granted": "داده شده", "not_granted": "داده نشده", "grant": "اجازه می‌دهم", "revoke": "لغو", "since": "از"},
+}
+
+
+def consent_page(rows: list, csrf: str, language: str = "en", message: str = "", error: str = "") -> str:
+    t = CONSENT_TEXT.get(language, CONSENT_TEXT["en"])
+    rtl = language == "fa"
+    banner = ""
+    if message:
+        banner = f'<div class="card"><strong>{esc(message)}</strong></div>'
+    if error:
+        banner = f'<div class="card"><strong class="danger">{esc(error)}</strong></div>'
+    cards = []
+    for row in rows:
+        label = row["label_fa"] if rtl else row["label_en"]
+        detail = row["detail_fa"] if rtl else row["detail_en"]
+        state = t["granted"] if row["granted"] else t["not_granted"]
+        since = f' <span class="muted">{esc(t["since"])} {esc(row["at"])}</span>' if row.get("at") else ""
+        if row["granted"]:
+            action_path, action_label, css = "/consent/revoke", t["revoke"], "danger"
+        else:
+            action_path, action_label, css = "/consent/grant", t["grant"], ""
+        cards.append(
+            f'<div class="card"><h2>{esc(label)}</h2><p class="muted">{esc(detail)}</p>'
+            f'<p>{pill(state, "ok" if row["granted"] else "off")}{since}</p>'
+            f'<form method="POST" action="{action_path}">{csrf_field(csrf)}'
+            f'<input type="hidden" name="scope" value="{esc(row["scope"])}">'
+            f'<button class="{css}">{esc(action_label)}</button></form></div>'
+        )
+    return f"""
+<div class="{'rtl' if rtl else ''}">
+<h1>{esc(t["title"])}</h1>
+<p class="sub">{esc(t["sub"])}</p>
+{banner}
+{''.join(cards)}
+</div>
+"""

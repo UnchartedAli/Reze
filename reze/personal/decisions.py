@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from reze.timeutil import utcnow as _utcnow
 from typing import Any, Dict, List, Optional
 
 from reze.database import db
@@ -10,7 +11,7 @@ from reze.search import universal
 
 
 def _stamp(days_ahead: Optional[int] = None) -> str:
-    moment = datetime.utcnow() + timedelta(days=int(days_ahead or 0))
+    moment = _utcnow() + timedelta(days=int(days_ahead or 0))
     return moment.strftime("%Y-%m-%d %H:%M:%S")
 
 
@@ -85,7 +86,7 @@ class DecisionService:
         return True
 
     def due_reviews(self, limit: int = 20) -> List[Dict[str, Any]]:
-        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        now = _utcnow().strftime("%Y-%m-%d %H:%M:%S")
         return db.query(
             "SELECT * FROM decisions WHERE status IN ('open', 'decided') "
             "AND review_at != '' AND review_at <= ? ORDER BY review_at ASC LIMIT ?",

@@ -9,6 +9,7 @@ import sqlite3
 import tempfile
 from contextlib import contextmanager
 from datetime import datetime
+from reze.timeutil import utcnow as _utcnow
 from typing import Any, Dict, List, Optional, Sequence
 from reze.config import settings
 from reze.logging_config import logger
@@ -91,6 +92,11 @@ class Database:
 
     def _init_db(self):
         """Create tables if they do not exist."""
+        # Before any write: keep a verified copy when an upgrade is pending.
+        from reze.core.upgrade_backup import backup_before_upgrade
+        from reze.migrations import MIGRATIONS
+
+        backup_before_upgrade(self.db_path, [migration.version for migration in MIGRATIONS])
         with self.get_connection() as conn:
             cursor = conn.cursor()
             
@@ -600,7 +606,7 @@ class Database:
             return int(cur.lastrowid)
 
     def due_reminders(self, now: Optional[datetime] = None) -> List[Dict[str, Any]]:
-        stamp = (now or datetime.utcnow()).strftime("%Y-%m-%d %H:%M:%S")
+        stamp = (now or _utcnow()).strftime("%Y-%m-%d %H:%M:%S")
         with self.get_connection() as conn:
             rows = conn.execute(
                 "SELECT * FROM reminders WHERE status = 'pending' AND due_at <= ? "

@@ -10,6 +10,7 @@ never spin forever.
 
 import asyncio
 from datetime import datetime, timedelta, timezone
+from reze.timeutil import utcnow as _utcnow
 from typing import Optional
 
 from reze.database import db
@@ -94,7 +95,7 @@ class ReminderService:
 
     async def tick(self) -> int:
         """Deliver every due reminder and return how many were delivered."""
-        due = db.due_reminders(datetime.utcnow())
+        due = db.due_reminders(_utcnow())
         delivered = 0
         for reminder in due:
             text = ascii.frame(

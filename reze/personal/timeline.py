@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from reze.timeutil import utcnow as _utcnow
 from typing import Any, Dict, List, Optional
 
 from reze.database import db
@@ -50,7 +51,7 @@ class TimelineService:
             sql += " AND kind = ?"
             params.append(kind)
         if days:
-            cutoff = (datetime.utcnow() - timedelta(days=int(days))).strftime("%Y-%m-%d %H:%M:%S")
+            cutoff = (_utcnow() - timedelta(days=int(days))).strftime("%Y-%m-%d %H:%M:%S")
             sql += " AND created_at >= ?"
             params.append(cutoff)
         sql += " ORDER BY id DESC LIMIT ?"
@@ -59,7 +60,7 @@ class TimelineService:
 
     def count(self, days: Optional[int] = None) -> int:
         if days:
-            cutoff = (datetime.utcnow() - timedelta(days=int(days))).strftime("%Y-%m-%d %H:%M:%S")
+            cutoff = (_utcnow() - timedelta(days=int(days))).strftime("%Y-%m-%d %H:%M:%S")
             row = db.query_one("SELECT COUNT(*) AS total FROM timeline_events WHERE created_at >= ?", (cutoff,))
         else:
             row = db.query_one("SELECT COUNT(*) AS total FROM timeline_events")

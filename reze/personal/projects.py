@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from reze.timeutil import utcnow as _utcnow
 from typing import Any, Dict, List, Optional
 
 from reze.database import db
@@ -111,7 +112,7 @@ class ProjectService:
         done_row = db.query_one("SELECT COUNT(*) AS total FROM tasks WHERE status = 'done'")
         overdue_row = db.query_one(
             "SELECT COUNT(*) AS total FROM tasks WHERE status != 'done' AND due_at != '' AND due_at < ?",
-            (datetime.utcnow().strftime("%Y-%m-%d"),),
+            (_utcnow().strftime("%Y-%m-%d"),),
         )
         return {
             "open": int((open_row or {}).get("total") or 0),

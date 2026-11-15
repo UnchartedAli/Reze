@@ -29,6 +29,10 @@ from reze.personal.focus import focus_service
 from reze.plugin_manager import plugin_manager
 from reze.preferences import get_pref
 from reze.productivity.reminders import reminder_service
+from reze.digest.service import digest_service
+from reze.style.service import style_service
+from reze.sandbox.service import isolated_host
+from reze.integrations import watchdog as watchdog_bridge
 from reze.runtime import set_main_loop
 from reze.scheduler import clock_scheduler
 from reze.automation.workflow import workflow_service
@@ -63,6 +67,11 @@ import reze.commands.tools  # noqa: F401
 import reze.commands.downloads  # noqa: F401
 import reze.commands.features  # noqa: F401
 import reze.commands.language  # noqa: F401
+import reze.commands.digest  # noqa: F401
+import reze.commands.style  # noqa: F401
+import reze.commands.isolated  # noqa: F401
+import reze.commands.watchdog  # noqa: F401
+import reze.commands.consent  # noqa: F401
 import reze.commands.knowledge  # noqa: F401
 import reze.commands.crm  # noqa: F401
 import reze.commands.decisions  # noqa: F401
@@ -99,6 +108,14 @@ async def handle_incoming_telegram_message(event):
         await message_logger.on_new_message(event)
     except Exception as exc:  # noqa: BLE001 - logging must never break the bot
         logger.debug("Message Guard capture failed: %s", exc)
+
+    # 0b. Style Assistant (OFF by default). It answers only allow-listed private chats,
+    #     with a labelled automatic reply, and never learns from incoming messages.
+    if features.is_enabled("style_assistant"):
+        try:
+            await style_service.on_incoming(event)
+        except Exception as exc:  # noqa: BLE001 - the assistant must never break the bot
+            logger.debug("Style Assistant skipped a message: %s", type(exc).__name__)
 
     # 0a. Optional Smart Inbox classification. It only records what arrived and
     #     never replies, forwards or contacts anyone.
@@ -300,6 +317,7 @@ async def main():
     plugin_manager.load_all()
 
     start_web_server_thread()
+    asyncio.get_running_loop().create_task(watchdog_bridge.send_event("started", f"Reze {__version__} is running."))
     logger.info("Web panel: %s | health: %s", settings.display_url, settings.healthcheck_path)
 
     clock_scheduler.client_wrapper = telegram_manager
@@ -307,6 +325,11 @@ async def main():
 
     reminder_service.client_provider = lambda: telegram_manager.client
     reminder_service.start()
+
+    digest_service.client_provider = lambda: telegram_manager.client
+    digest_service.start()
+
+    style_service.client_provider = lambda: telegram_manager.client
 
     presence_service.client_provider = lambda: telegram_manager.client
     presence_service.start()
@@ -370,6 +393,15 @@ async def main():
         logger.info("Shutting down Reze...")
         clock_scheduler.stop()
         reminder_service.stop()
+        digest_service.stop()
+        try:
+            await asyncio.wait_for(watchdog_bridge.send_event("stopping", "Reze is stopping."), 5)
+        except Exception:  # noqa: BLE001 - shutdown must continue
+            pass
+        try:
+            await isolated_host.shutdown()
+        except Exception as exc:  # noqa: BLE001 - shutdown must continue
+            logger.warning("Isolated plugin shutdown: %s", type(exc).__name__)
         presence_service.stop()
         automation_engine.stop()
         message_logger.stop()

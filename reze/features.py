@@ -242,6 +242,33 @@ FEATURES: List[Feature] = [
         label_fa="هوشمندی اسناد",
         description_fa="استخراج متن از DOCX/PDF/متن و خلاصه یا نمایه‌سازی آن.",
     ),
+    Feature(
+        "channel_digest",
+        "Channel Digest",
+        "Collect new posts from channels you select and send an AI or basic digest to Saved Messages.",
+        "Automation",
+        sensitive=True,
+        label_fa="خلاصهٔ کانال‌ها",
+        description_fa="جمع‌آوری پست‌های جدید کانال‌های انتخابی و ارسال خلاصه به پیام‌های ذخیره‌شده.",
+    ),
+    Feature(
+        "style_assistant",
+        "Style Assistant",
+        "Learns the owner's own writing style from chosen chats; drafts replies for approval and, if allowed, sends clearly labelled automatic replies.",
+        "Automation",
+        sensitive=True,
+        label_fa="دستیار سبک نوشتن",
+        description_fa="یادگیری سبک نوشتار خود صاحب حساب از گفتگوهای انتخابی؛ پیش‌نویس پاسخ برای تأیید و در صورت اجازه، پاسخ خودکار با برچسب مشخص.",
+    ),
+    Feature(
+        "isolated_plugins",
+        "Isolated plugins",
+        "Load, unload and approve plugins from the isolated plugins folder, each in its own process.",
+        "Plugins",
+        sensitive=True,
+        label_fa="افزونه‌های جداشده",
+        description_fa="بارگذاری و تأیید افزونه‌ها از پوشهٔ افزونه‌های جداشده، هر کدام در فرایند جدا.",
+    ),
 ]
 
 _BY_KEY: Dict[str, Feature] = {feature.key: feature for feature in FEATURES}

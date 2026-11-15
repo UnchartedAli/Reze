@@ -21,6 +21,7 @@ import asyncio
 import csv
 import json
 import os
+from reze.storage import text_at_rest as tar
 import shutil
 import sqlite3
 import zipfile
@@ -36,8 +37,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "enabled": False,
     "dest": "me",             # "me" (Saved Messages) or a numeric chat id
     "chats": [],              # explicitly watched chat ids
-    "private": False,         # watch every private chat
-    "groups": False,          # watch every group / supergroup
+    "private": False,         # watch every private chat (NOT bot chats)
+    "groups": False,          # watch every group / supergroup (NOT messages from bot accounts)
+    "bots": False,            # watch bot chats and bot messages in groups (separate, OFF by default)
     "edits": True,            # also report edited messages
     "media": True,            # cache media so deleted files can be re-sent
     "archive": True,          # keep a PERMANENT local copy of deleted messages and timed media
@@ -84,6 +86,11 @@ CREATE TABLE IF NOT EXISTS msglog_archive (
     saved_at    REAL
 );
 """
+
+
+def _is_bot_entity(entity: Any) -> bool:
+    """True for Telegram bot accounts. Telethon exposes this as ``User.bot``."""
+    return bool(getattr(entity, "bot", False))
 
 
 def media_kind(message: Any) -> Optional[str]:
@@ -241,15 +248,33 @@ class MessageLogger:
         self.update(chats=chats)
         return True
 
-    def is_watched(self, chat_id: Optional[int], *, private: bool, group: bool) -> bool:
+    def is_watched(self, chat_id: Optional[int], *, private: bool, group: bool, bot: bool = False) -> bool:
+        """Whether messages of this chat may be stored.
+
+        Bots are a separate category: a bot chat or a bot message in a group is
+        covered only by the ``bots`` switch (or by an explicit ``chats`` entry).
+        ``private`` and ``groups`` never cover bots.
+        """
         cfg = self.config
         if not cfg["enabled"] or chat_id is None:
             return False
         if chat_id in cfg["chats"]:
             return True
+        if bot:
+            return bool(cfg["bots"])
         if private and cfg["private"]:
             return True
         return bool(group and cfg["groups"])
+
+    def _deliverable(self, row: Any) -> bool:
+        """Whether a stored row may still be reported under the current settings."""
+        kind = row["chat_kind"] or ""
+        return self.is_watched(
+            row["chat_id"],
+            private=kind == "private",
+            group=kind == "group",
+            bot=kind == "bot",
+        )
 
     # --------------------------------------------------------------- store
     def _row(self, scope: int, msg_id: int) -> Optional[sqlite3.Row]:
@@ -339,7 +364,7 @@ class MessageLogger:
                 "INSERT INTO msglog_archive (kind, chat_id, chat_title, chat_kind, sender_id, sender_name, "
                 "text, media_kind, media_path, sent_at, saved_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (kind, pick("chat_id"), pick("chat_title"), pick("chat_kind"), pick("sender_id"),
-                 pick("sender_name"), pick("text"), pick("media_kind"), kept, pick("sent_at"), self._clock()),
+                 pick("sender_name"), tar.reseal(pick("text")), pick("media_kind"), kept, pick("sent_at"), self._clock()),
             )
             conn.commit()
 
@@ -347,28 +372,52 @@ class MessageLogger:
     def _like(text: str) -> str:
         return "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
-    def search_archive(self, query: str = "", limit: int = 8, kind: Optional[str] = None) -> List[sqlite3.Row]:
+    @staticmethod
+    def _readable(row: Any) -> dict:
+        """A plain dictionary with the message text decrypted (or a placeholder when it cannot be opened)."""
+        data = dict(row)
+        data["text"] = tar.open_text(data.get("text"))
+        return data
+
+    #: How many of the newest archive rows a text search decrypts. Encrypted text cannot be searched
+    #: with SQL LIKE, so the search reads at most this many rows and filters them in Python.
+    ARCHIVE_SCAN_LIMIT = 20000
+
+    def search_archive(self, query: str = "", limit: int = 8, kind: Optional[str] = None) -> List[dict]:
         """Newest-first search over text, sender and chat title of the permanent archive."""
-        sql = "SELECT * FROM msglog_archive"
+        limit = max(1, min(int(limit), 50))
         args: List[Any] = []
         where = []
-        if query.strip():
-            like = self._like(query.strip())
-            where.append("(text LIKE ? ESCAPE '\\' OR sender_name LIKE ? ESCAPE '\\' OR chat_title LIKE ? ESCAPE '\\')")
-            args += [like, like, like]
         if kind:
             where.append("kind = ?")
             args.append(kind)
+        sql = "SELECT * FROM msglog_archive"
         if where:
             sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY id DESC LIMIT ?"
-        args.append(max(1, min(int(limit), 50)))
+        scan = self.ARCHIVE_SCAN_LIMIT if query.strip() else limit
+        args.append(scan)
         with self.connect() as conn:
-            return conn.execute(sql, args).fetchall()
+            rows = conn.execute(sql, args).fetchall()
+        readable = [self._readable(row) for row in rows]
+        needle = query.strip().lower()
+        if not needle:
+            return readable[:limit]
+        matches = []
+        for item in readable:
+            haystack = " ".join(
+                str(value or "") for value in (item.get("text"), item.get("sender_name"), item.get("chat_title"))
+            ).lower()
+            if needle in haystack:
+                matches.append(item)
+                if len(matches) >= limit:
+                    break
+        return matches
 
-    def get_archived(self, item_id: int) -> Optional[sqlite3.Row]:
+    def get_archived(self, item_id: int) -> Optional[dict]:
         with self.connect() as conn:
-            return conn.execute("SELECT * FROM msglog_archive WHERE id = ?", (int(item_id),)).fetchone()
+            row = conn.execute("SELECT * FROM msglog_archive WHERE id = ?", (int(item_id),)).fetchone()
+        return self._readable(row) if row else None
 
     async def send_archived(self, client: Any, item_id: int) -> bool:
         """Re-send one archived item (text report + media if it still exists) to the destination."""
@@ -384,7 +433,7 @@ class MessageLogger:
         if fmt not in ("json", "csv", "zip"):
             raise ValueError("Format must be json, csv or zip.")
         with self.connect() as conn:
-            rows = [dict(r) for r in conn.execute("SELECT * FROM msglog_archive ORDER BY id").fetchall()]
+            rows = [self._readable(r) for r in conn.execute("SELECT * FROM msglog_archive ORDER BY id").fetchall()]
         if not rows:
             raise ValueError("The archive is empty.")
         for r in rows:
@@ -446,7 +495,24 @@ class MessageLogger:
         is_channel = bool(getattr(event, "is_channel", False))
         is_private = bool(getattr(event, "is_private", False))
         is_group = bool(getattr(event, "is_group", False))
-        if not self.is_watched(chat_id, private=is_private, group=is_group):
+        bot_chat = bot_sender = False
+        if is_private:
+            try:
+                bot_chat = _is_bot_entity(await event.get_chat())
+            except Exception:  # noqa: BLE001 - classification is best effort
+                bot_chat = False
+        elif is_group:
+            try:
+                bot_sender = _is_bot_entity(await event.get_sender())
+            except Exception:  # noqa: BLE001
+                bot_sender = False
+        is_bot = bot_chat or bot_sender
+        if not self.is_watched(
+            chat_id,
+            private=is_private and not bot_chat,
+            group=is_group,
+            bot=is_bot,
+        ):
             return
 
         text = getattr(message, "raw_text", None) or getattr(message, "message", "") or ""
@@ -472,7 +538,7 @@ class MessageLogger:
 
         sent = getattr(message, "date", None)
         sent_ts = sent.timestamp() if hasattr(sent, "timestamp") else self._clock()
-        chat_kind = "private" if is_private else ("group" if is_group else "channel")
+        chat_kind = "bot" if is_bot else ("private" if is_private else ("group" if is_group else "channel"))
         with self.connect() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO msglog (scope, msg_id, chat_id, chat_title, chat_kind, "
@@ -480,7 +546,7 @@ class MessageLogger:
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)",
                 (
                     scope, message.id, chat_id, _display_name(chat), chat_kind,
-                    getattr(event, "sender_id", None), _display_name(sender), text,
+                    getattr(event, "sender_id", None), _display_name(sender), tar.seal(text),
                     kind, sent_ts, self._clock(),
                 ),
             )
@@ -592,6 +658,13 @@ class MessageLogger:
             row = self._row(scope, msg_id)
             if row is None:
                 continue
+            if not self._deliverable(row):
+                # Not watched any more (for example bots switched off): forget it silently.
+                with self.connect() as conn:
+                    conn.execute("DELETE FROM msglog WHERE scope = ? AND msg_id = ?", (scope, msg_id))
+                    conn.commit()
+                self._remove_file(row["media_path"])
+                continue
             found += 1
             if sent_reports < MAX_REPORTS_PER_EVENT:
                 await self._deliver(client, row, "Deleted message")
@@ -624,10 +697,10 @@ class MessageLogger:
         is_channel = bool(getattr(event, "is_channel", False))
         scope = event.chat_id if is_channel else 0
         row = self._row(scope, message.id)
-        if row is None:
+        if row is None or not self._deliverable(row):
             return
         new_text = getattr(message, "raw_text", None) or getattr(message, "message", "") or ""
-        if new_text == (row["text"] or ""):
+        if new_text == tar.open_text(row["text"]):
             return  # reaction / media-only change
         client = getattr(event, "client", None) or self.client_provider()
         if not client:
@@ -636,7 +709,7 @@ class MessageLogger:
         with self.connect() as conn:
             conn.execute(
                 "UPDATE msglog SET text = ? WHERE scope = ? AND msg_id = ?",
-                (new_text, scope, message.id),
+                (tar.seal(new_text), scope, message.id),
             )
             conn.commit()
         self.stats["edited"] += 1
@@ -662,7 +735,7 @@ class MessageLogger:
         ]
         if row["media_kind"]:
             lines.append(f"Media: {row['media_kind']}")
-        body = (row["text"] or "").strip()
+        body = tar.open_text(row["text"]).strip()
         limit = 2500
         if new_text is not None:
             lines.append("")
@@ -691,6 +764,7 @@ class MessageLogger:
         self, client: Any, row: Any, title: str,
         new_text: Optional[str] = None, with_media: bool = True,
     ) -> None:
+        row = self._readable(row)
         report = self.format_report(row, title, new_text)
         path = row["media_path"]
         if with_media and path and os.path.isfile(path):
@@ -705,8 +779,29 @@ class MessageLogger:
         await self._send_text(client, report)
 
     # ----------------------------------------------------------- lifecycle
+    def _split_bots_once(self) -> None:
+        """One-time upgrade step. Cached rows saved before bots had their own switch are
+        labelled "private" and may belong to bot chats, so the short-lived cache of
+        private rows is cleared once. The permanent archive is never touched automatically."""
+        if self._get_setting is None or self._set_setting is None:
+            return
+        if self._get_setting("msglog:split_bots_v1", None):
+            return
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT media_path FROM msglog WHERE chat_kind IN ('private', 'bot')"
+            ).fetchall()
+            for row in rows:
+                self._remove_file(row["media_path"])
+            removed = conn.execute("DELETE FROM msglog WHERE chat_kind IN ('private', 'bot')").rowcount
+            conn.commit()
+        self._set_setting("msglog:split_bots_v1", "1")
+        if removed:
+            logger.info("Message Guard: cleared %d cached private/bot row(s) once, after the bot split.", removed)
+
     def start(self) -> None:
         if self._purge_task is None or self._purge_task.done():
+            self._split_bots_once()
             self._purge_task = asyncio.ensure_future(self._purge_loop())
 
     def stop(self) -> None:

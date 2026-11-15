@@ -107,7 +107,7 @@ NAV_SECTIONS = [
         ("settings", "Settings", "/settings"),
     ]),
     ("Community", [("groups", "Groups", "/groups"), ("filters", "Filters", "/filters"), ("security", "Security", "/security")]),
-    ("Personal", [("productivity", "Archive", "/productivity"), ("profile", "Profile clock", "/profile")]),
+    ("Personal", [("productivity", "Archive", "/productivity"), ("profile", "Profile clock", "/profile"), ("style", "Style Assistant", "/style"), ("digest", "Channel Digest", "/digest"), ("consent", "Consent", "/consent")]),
 ]
 
 
@@ -182,7 +182,7 @@ def render_shell(title: str, content: str, active: str = "dashboard", csrf: str 
 <header>
     <div class="brand">REZE<span class="badge">v{esc(__version__)}</span></div>
     <div class="meta">{esc(__author__)} · <a href="{esc(__channel_url__)}" target="_blank" rel="noopener noreferrer">{esc(__channel__)}</a></div>
-    <form method="POST" action="/logout"><input type="hidden" name="csrf_token" value="{esc(csrf)}"><button type="submit" class="danger">{esc(panel_text("Sign out", "Sign out", language))}</button></form>
+    <form method="POST" action="/logout"><input type="hidden" name="csrf_token" value="{esc(csrf)}"><button type="submit" class="danger">{esc(panel_text("Sign out", "Sign out", language))}</button></form><form method="POST" action="/logout-all"><input type="hidden" name="csrf_token" value="{esc(csrf)}"><button type="submit" class="danger">{esc(panel_text("Sign out everywhere", "خروج از همه نشست‌ها", language))}</button></form>
 </header>
 <div class="layout">
     <aside><nav class="nav">{''.join(nav_html)}</nav></aside>

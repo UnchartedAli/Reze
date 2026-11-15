@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta
+from reze.timeutil import utcnow as _utcnow
 from typing import Any, Dict, List, Optional
 
 from reze.core.registry import Service
@@ -14,7 +15,7 @@ MAX_MINUTES = 240
 
 
 def _now() -> datetime:
-    return datetime.utcnow()
+    return _utcnow()
 
 
 def _stamp(moment: datetime) -> str:

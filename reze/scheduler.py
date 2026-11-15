@@ -5,6 +5,7 @@ Handles Name Clock, Bio Clock, rate limits, FloodWait backoff, and periodic task
 
 import asyncio
 from datetime import datetime
+from reze.timeutil import utcnow as _utcnow
 from zoneinfo import ZoneInfo
 from typing import Optional
 from reze.database import db
@@ -77,7 +78,7 @@ class ClockScheduler:
                 success = await self._apply_name_update(new_name)
                 if success:
                     self.last_name = new_name
-                    db.update_profile_settings(last_updated=datetime.utcnow())
+                    db.update_profile_settings(last_updated=_utcnow())
 
         # 2. Update Bio
         if bio_enabled:
@@ -91,7 +92,7 @@ class ClockScheduler:
                 success = await self._apply_bio_update(new_bio)
                 if success:
                     self.last_bio = new_bio
-                    db.update_profile_settings(last_updated=datetime.utcnow())
+                    db.update_profile_settings(last_updated=_utcnow())
 
     async def _apply_name_update(self, new_name: str) -> bool:
         """Call Telegram MTProto UpdateProfileRequest safely."""
